@@ -1,0 +1,106 @@
+{
+  "target_corpus_size": 30,
+  "local_case_count": 6,
+  "cases": [
+    {
+      "file_name": "2020-01-21__江苏安靠智能输电工程科技股份有限公司__300617__安靠智电__2019年__年度报告.pdf",
+      "company": "江苏安靠智能输电工程科技股份有限公司",
+      "report_year": 2019,
+      "check_geometry": true,
+      "minimum_concepts": 90,
+      "facts": {
+        "revenue": 318024319.30,
+        "operating_cost": 157633818.13,
+        "net_profit": 63616426.50,
+        "operating_cash_flow": 36228660.52,
+        "cash_paid_for_long_term_assets": 23730190.63,
+        "total_assets": 1050566795.15,
+        "total_liabilities": 222045561.29
+      },
+      "note_facts": {
+        "receivable_aging_balance|1年以内": 144577121.98,
+        "goodwill_detail|河南安靠电力工程设计有限公司": 11983105.44,
+        "related_party_transaction|江苏安靠创智共享空间科技有限公司": 174582.00
+      }
+    },
+    {
+      "file_name": "2020-01-23__浙江海翔药业股份有限公司__002099__海翔药业__2019年__年度报告.pdf",
+      "company": "浙江海翔药业股份有限公司",
+      "report_year": 2019,
+      "minimum_concepts": 90,
+      "facts": {
+        "revenue": 2941412770.30,
+        "operating_cost": 1463159361.04,
+        "net_profit": 770782185.09,
+        "operating_cash_flow": 612399095.31,
+        "cash_paid_for_long_term_assets": 160639977.78,
+        "total_assets": 6747198664.47,
+        "total_liabilities": 1022736568.92
+      }
+    },
+    {
+      "path": "docker/examples/fin_report/pdf/2020-04-03__北方华锦化学工业股份有限公司__000059__华锦股份__2019年__年度报告.pdf",
+      "file_name": "2020-04-03__北方华锦化学工业股份有限公司__000059__华锦股份__2019年__年度报告.pdf",
+      "company": "北方华锦化学工业股份有限公司",
+      "report_year": 2019,
+      "minimum_concepts": 90,
+      "facts": {
+        "revenue": 39608340979.04,
+        "operating_cost": 33842254831.21,
+        "net_profit": 992955495.15,
+        "operating_cash_flow": 2723475056.01,
+        "cash_paid_for_long_term_assets": 218356260.91,
+        "total_assets": 29359202252.30,
+        "total_liabilities": 15213067305.30
+      }
+    },
+    {
+      "path": "docker/examples/fin_report/pdf/2020-04-03__河北建新化工股份有限公司__300107__建新股份__2019年__年度报告.pdf",
+      "file_name": "2020-04-03__河北建新化工股份有限公司__300107__建新股份__2019年__年度报告.pdf",
+      "company": "河北建新化工股份有限公司",
+      "report_year": 2019,
+      "minimum_concepts": 90,
+      "facts": {
+        "revenue": 925158518.22,
+        "operating_cost": 464583922.59,
+        "net_profit": 325577386.27,
+        "operating_cash_flow": 385097160.00,
+        "cash_paid_for_long_term_assets": 91978526.83,
+        "total_assets": 1859328958.49,
+        "total_liabilities": 94418428.64
+      }
+    },
+    {
+      "path": "docker/examples/fin_report/pdf/2020-04-11__常柴股份有限公司__200570__苏常柴__2019年__年度报告.pdf",
+      "file_name": "2020-04-11__常柴股份有限公司__200570__苏常柴__2019年__年度报告.pdf",
+      "company": "常柴股份有限公司",
+      "report_year": 2019,
+      "minimum_concepts": 90,
+      "facts": {
+        "revenue": 2040133717.30,
+        "operating_cost": 1709649777.75,
+        "net_profit": 24934586.11,
+        "operating_cash_flow": -20542857.52,
+        "cash_paid_for_long_term_assets": 39198814.48,
+        "total_assets": 3484975990.48,
+        "total_liabilities": 1356100111.53
+      }
+    },
+    {
+      "path": "docker/examples/fin_report/pdf/2020-04-14__贵州航天电器股份有限公司__002025__航天电器__2019年__年度报告.pdf",
+      "file_name": "2020-04-14__贵州航天电器股份有限公司__002025__航天电器__2019年__年度报告.pdf",
+      "company": "贵州航天电器股份有限公司",
+      "report_year": 2019,
+      "minimum_concepts": 90,
+      "facts": {
+        "revenue": 3533710584.98,
+        "operating_cost": 2300397633.62,
+        "net_profit": 402233891.06,
+        "operating_cash_flow": 265348926.68,
+        "cash_paid_for_long_term_assets": 97631007.32,
+        "total_assets": 5593990470.97,
+        "total_liabilities": 1916633416.82
+      }
+    }
+  ]
+}
