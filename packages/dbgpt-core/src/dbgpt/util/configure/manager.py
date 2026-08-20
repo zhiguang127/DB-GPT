@@ -484,6 +484,13 @@ class ConfigurationManager:
         # Handle basic types
         if origin is None and field_type in (str, int, float, bool):
             try:
+                if field_type is bool and isinstance(value, str):
+                    normalized = value.strip().lower()
+                    if normalized in {"false", "0", "no", "off", ""}:
+                        return False
+                    if normalized in {"true", "1", "yes", "on"}:
+                        return True
+                    raise ValueError(f"Cannot convert {value} to bool")
                 return field_type(value)
             except (ValueError, TypeError):
                 raise ValueError(f"Cannot convert {value} to {field_type}")

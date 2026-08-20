@@ -155,6 +155,23 @@ def test_basic_config():
     assert system_config.encrypt_key == "your_secret_key"
 
 
+@dataclass
+class _BooleanEnvConfig:
+    enabled: Optional[bool] = None
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [("false", False), ("0", False), ("off", False), ("true", True), ("1", True)],
+)
+def test_boolean_environment_values_are_parsed(raw_value, expected):
+    config_manager = ConfigurationManager({"feature": {"enabled": raw_value}})
+
+    config = config_manager.parse_config(_BooleanEnvConfig, "feature", None)
+
+    assert config.enabled is expected
+
+
 def test_nested_config():
     config_dict = {
         "service": {
