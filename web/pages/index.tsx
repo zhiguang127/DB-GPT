@@ -680,8 +680,6 @@ const Playground: NextPage = () => {
 
   // Track step IDs that belong to a terminate action so we can suppress them
   const terminatedStepIdsRef = useRef<Set<string>>(new Set());
-  const submissionInFlightRef = useRef(false);
-  const activeRequestControllerRef = useRef<AbortController | null>(null);
   const preloadedFilePathRef = useRef<string | null>(null);
   // Snapshot of the exact payload last sent to the agent, captured at send
   // time so "保存定时任务" can replay the real execution (file / database /
@@ -1735,12 +1733,7 @@ const Playground: NextPage = () => {
     const effectiveFile = overrideFile !== undefined ? overrideFile : uploadedFile;
     const effectiveSkill = overrideSkill !== undefined ? overrideSkill : selectedSkill;
     const effectiveDb = overrideDb !== undefined ? overrideDb : selectedDb;
-    if ((!inputQuery.trim() && !effectiveFile) || loading || submissionInFlightRef.current) return;
-
-    submissionInFlightRef.current = true;
-    setLoading(true);
-    const controller = new AbortController();
-    activeRequestControllerRef.current = controller;
+    if ((!inputQuery.trim() && !effectiveFile) || loading) return;
 
     cancelSummaryPresentation();
 
@@ -1763,7 +1756,6 @@ const Playground: NextPage = () => {
       try {
         const uploadRes = await axios.post(`${process.env.API_BASE_URL ?? ''}/api/v1/python/file/upload`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
-          signal: controller.signal,
         });
 
         const resData = uploadRes.data;
@@ -1780,17 +1772,9 @@ const Playground: NextPage = () => {
         } else {
           const errMsg = resData?.err_msg || resData?.message || 'Unknown error';
           message.error('File upload failed: ' + errMsg);
-          submissionInFlightRef.current = false;
-          activeRequestControllerRef.current = null;
-          setLoading(false);
           return;
         }
       } catch (uploadErr: any) {
-        if (controller.signal.aborted) {
-          submissionInFlightRef.current = false;
-          setLoading(false);
-          return;
-        }
         console.error('[Upload] error:', uploadErr);
         const errDetail =
           uploadErr?.response?.data?.err_msg ||
@@ -1798,9 +1782,6 @@ const Playground: NextPage = () => {
           uploadErr?.message ||
           'Network error';
         message.error('File upload failed: ' + errDetail);
-        submissionInFlightRef.current = false;
-        activeRequestControllerRef.current = null;
-        setLoading(false);
         return;
       }
     } else {
@@ -1866,6 +1847,7 @@ const Playground: NextPage = () => {
       },
     ]);
 
+    setLoading(true);
     setQuery(''); // Clear input
     setStreamingSummary('');
     setSummaryComplete(false);
@@ -1874,6 +1856,7 @@ const Playground: NextPage = () => {
     setPendingSummaryPresentation(null);
     setActiveViewMsgId(responseId); // Auto-switch right panel to new round
 
+    const controller = new AbortController();
     terminatedStepIdsRef.current.clear();
     setExecutionMap(prev => ({
       ...prev,
@@ -1933,17 +1916,9 @@ const Playground: NextPage = () => {
         signal: controller.signal,
       });
 
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-      }
       if (!response.body) {
         throw new Error('No response body');
       }
-
-      // An attachment belongs to one message. Keep uploadedFilePath for the
-      // current preview, but do not upload the same local file again when the
-      // user sends a follow-up question.
-      setUploadedFile(null);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
@@ -2333,20 +2308,11 @@ const Playground: NextPage = () => {
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split('\n\n');
         buffer = parts.pop() || '';
-        for (const part of parts) {
-          processEvent(part);
-          // Let React paint phase transitions even if the network coalesces
-          // several SSE frames into one read. This is one browser frame, not a
-          // synthetic task delay; backend queue backpressure still determines
-          // the real execution order.
-          if (/"type"\s*:\s*"(?:plan\.update|step\.start|step\.done)"/.test(part)) {
-            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-          }
-        }
+        parts.forEach(processEvent);
       }
       setLoading(false);
     } catch (err: any) {
-      if (err?.name === 'AbortError') return;
+      setLoading(false);
       message.error(err?.message || 'Failed to get response');
       setMessages(prev => {
         const newMessages = [...prev];
@@ -2357,12 +2323,6 @@ const Playground: NextPage = () => {
         }
         return newMessages;
       });
-    } finally {
-      submissionInFlightRef.current = false;
-      if (activeRequestControllerRef.current === controller) {
-        activeRequestControllerRef.current = null;
-      }
-      setLoading(false);
     }
   };
 
@@ -2431,11 +2391,8 @@ const Playground: NextPage = () => {
     }
   };
 
-  const resetTaskWorkspace = useCallback(() => {
-    activeRequestControllerRef.current?.abort();
-    activeRequestControllerRef.current = null;
-    submissionInFlightRef.current = false;
-    setLoading(false);
+  // Clear chat history
+  const handleClearChat = () => {
     cancelSummaryPresentation();
     setMessages([]);
     setConversationId(null);
@@ -2443,46 +2400,18 @@ const Playground: NextPage = () => {
     setExecutionMap({});
     setActiveMessageId(null);
     setActiveViewMsgId(null);
-    setActiveSubAgent(null);
-    setSelectedStepId(null);
-    setSelectedDb(null);
-    setSelectedKnowledge(null);
-    setSelectedSkill(null);
-    setSelectedConnectors([]);
-    setUploadedFile(null);
     setUploadedFilePath(null);
-    preloadedFilePathRef.current = null;
-    lastSentPayloadRef.current = null;
     setFilePreview(null);
     setFilePreviewError(null);
-    setChartPreview(null);
     setArtifacts([]);
-    setCreatedSkillNames({});
-    setPreviewArtifact(null);
     setRightPanelTab('preview');
-    setRightPanelView('execution');
-    setRightPanelCollapsed(false);
     setStreamingSummary('');
     setSummaryComplete(false);
-    setTaskPlan([]);
-    setPendingQuestion(null);
-    setContextStatus(null);
     setSelectedCitationIndex(null);
     setPendingFinalization(null);
     setPendingSummaryPresentation(null);
-  }, [cancelSummaryPresentation]);
-
-  // Clear chat history
-  const handleClearChat = useCallback(() => {
-    resetTaskWorkspace();
-    void router.replace('/', undefined, { shallow: true });
-  }, [resetTaskWorkspace, router]);
-
-  useEffect(() => {
-    if (!router.isReady || !router.query.new_task) return;
-    resetTaskWorkspace();
-    void router.replace('/', undefined, { shallow: true });
-  }, [resetTaskWorkspace, router, router.isReady, router.query.new_task]);
+    router.push('/', undefined, { shallow: true });
+  };
 
   const restoreFromHistory = (
     historyMessages: Array<{ role: string; context: string; order?: number; model_name?: string }>,

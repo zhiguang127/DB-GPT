@@ -126,19 +126,6 @@ function SideBar() {
     setIsMenuExpand(!isMenuExpand);
   }, [isMenuExpand, setIsMenuExpand]);
 
-  const handleNewTaskClick = useCallback(
-    (event: React.MouseEvent<HTMLAnchorElement>) => {
-      event.preventDefault();
-      // A unique route signal works even when the user is already on `/`.
-      // The workspace consumes it, aborts any stale stream, and resets itself.
-      void router.push({
-        pathname: '/',
-        query: { new_task: Date.now().toString() },
-      });
-    },
-    [router],
-  );
-
   const handleToggleTheme = useCallback(() => {
     const theme = mode === 'light' ? 'dark' : 'light';
     setMode(theme);
@@ -422,7 +409,7 @@ function SideBar() {
       </div>
 
       {/* New Task Button */}
-      <Link href='/' onClick={handleNewTaskClick}>
+      <Link href='/'>
         <div className='flex items-center justify-center gap-2 px-4 py-2.5 mb-4 bg-black dark:bg-white dark:text-black text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer'>
           <PlusOutlined className='text-xs' />
           <span>{t('new_task')}</span>
