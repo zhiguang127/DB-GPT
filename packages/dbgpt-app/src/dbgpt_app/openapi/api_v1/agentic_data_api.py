@@ -1053,6 +1053,42 @@ async def _react_agent_stream(
             await _cancel_and_await_agent_task(agent_task_holder[0])
 
 
+def _is_financial_research_request(dialogue: ConversationVo) -> bool:
+    from dbgpt_app.financial_research.presentation.routing import (
+        should_route_financial_research,
+    )
+
+    return should_route_financial_research(dialogue)
+
+
+def _financial_file_paths(dialogue: ConversationVo) -> List[str]:
+    from dbgpt_app.financial_research.presentation.routing import financial_file_paths
+
+    return financial_file_paths(dialogue)
+
+
+async def _financial_research_agent_stream(
+    dialogue: ConversationVo,
+) -> AsyncGenerator[str, None]:
+    from dbgpt_app.financial_research.presentation.streaming import (
+        stream_financial_research,
+    )
+
+    async for event in stream_financial_research(dialogue, CFG.SYSTEM_APP):
+        yield event
+
+
+async def _selected_agent_stream(
+    dialogue: ConversationVo,
+) -> AsyncGenerator[str, None]:
+    if _is_financial_research_request(dialogue):
+        async for event in _financial_research_agent_stream(dialogue):
+            yield event
+        return
+    async for event in _react_agent_stream(dialogue, tool_mode="full"):
+        yield event
+
+
 class _AgentStreamingResponse(StreamingResponse):
     """Streaming response that explicitly closes its owned body iterator."""
 
@@ -3567,7 +3603,7 @@ async def chat_react_agent(
     }
     try:
         return _AgentStreamingResponse(
-            _react_agent_stream(dialogue, tool_mode="full"),
+            _selected_agent_stream(dialogue),
             headers=headers,
             media_type="text/event-stream",
         )
