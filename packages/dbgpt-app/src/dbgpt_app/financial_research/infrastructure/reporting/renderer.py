@@ -10,8 +10,10 @@ from ...domain.models import (
     Evidence,
     FinancialMetric,
     ReportArtifact,
+    ResearchMode,
     ResearchState,
 )
+from ...domain.normalization import identified_company_names
 from ...domain.periods import period_sort_key
 
 
@@ -64,7 +66,9 @@ def render_report(state: ResearchState, output_dir: Path) -> ReportArtifact:
         for items in company_metrics.values():
             items.sort(key=lambda item: period_sort_key(item.period), reverse=True)
 
-    companies = sorted(metrics_by_company)
+    companies = identified_company_names(state.metrics, state.documents)
+    for company in companies:
+        metrics_by_company.setdefault(company, {})
     metric_by_id = {metric.id: metric for metric in state.metrics}
     computation_rows = [
         {
@@ -78,10 +82,24 @@ def render_report(state: ResearchState, output_dir: Path) -> ReportArtifact:
         }
         for computation in state.computations
     ]
+    top_finding_ids = {
+        finding["id"]
+        for finding in state.analysis.get("top_findings", [])
+        if finding.get("id")
+    }
     if len(companies) > 1:
+        research_scope_label = f"{len(companies)} 家公司"
         report_title = f"{len(companies)} 家公司可追溯财务对比报告"
+    elif state.mode == ResearchMode.MULTI_COMPANY and len(state.documents) > 1:
+        research_scope_label = f"{len(state.documents)} 份财报（公司身份未完整识别）"
+        report_title = f"{len(state.documents)} 份财报可追溯财务对比报告"
     else:
         company = companies[0] if companies else "财报"
+        research_scope_label = (
+            f"{len(companies)} 家公司"
+            if companies
+            else f"{len(state.documents)} 份财报（公司身份未识别）"
+        )
         report_title = f"{company}可追溯财务研究报告"
 
     report_path = output_dir / "financial_research_report.html"
@@ -90,6 +108,7 @@ def render_report(state: ResearchState, output_dir: Path) -> ReportArtifact:
         template.render(
             state=state,
             report_title=report_title,
+            research_scope_label=research_scope_label,
             companies=companies,
             metrics_by_company=metrics_by_company,
             evidence_by_id=evidence_by_id,
@@ -98,6 +117,7 @@ def render_report(state: ResearchState, output_dir: Path) -> ReportArtifact:
             source_rows=source_rows,
             document_maps=document_maps,
             computation_rows=computation_rows,
+            top_finding_ids=top_finding_ids,
             chart_svgs=chart_svgs,
             labels=labels,
         ),

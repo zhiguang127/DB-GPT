@@ -9,7 +9,7 @@
     *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#edf1f6;color:var(--ink);font-family:"Noto Sans CJK SC","Microsoft YaHei",sans-serif;line-height:1.65}
     main{max-width:1080px;margin:28px auto;background:#fff;border-radius:22px;box-shadow:0 18px 60px #17203318;overflow:hidden}.hero{padding:42px 48px;color:#fff;background:linear-gradient(125deg,#193b91,#315fdf 60%,#6945d8)}
     h1{margin:0 0 8px;font-size:32px}.meta{color:#e3eaff}.content{padding:32px 48px 50px}nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:26px}nav a{padding:6px 10px;border-radius:8px;background:#edf3ff;color:var(--brand);text-decoration:none;font-size:13px}
-    h2{margin:38px 0 15px;padding-bottom:8px;border-bottom:1px solid var(--line);font-size:23px}h3{margin:22px 0 10px}.muted{color:var(--muted)}
+    h2{margin:38px 0 15px;padding-bottom:8px;border-bottom:1px solid var(--line);font-size:23px}h3{margin:22px 0 10px}.muted{color:var(--muted)}.focus{margin:0 0 24px;padding:16px 18px;border:1px solid #cddafe;border-radius:13px;background:#f4f7ff}.focus strong{display:block;color:#294ba5}.focus p{margin:5px 0 0}.section-meta{margin:8px 0;padding:12px 14px;border-radius:10px;background:#f8fafc;color:var(--muted);font-size:13px}.headline-badge{display:inline-block;margin-left:7px;padding:2px 7px;border-radius:99px;background:#e8efff;color:var(--brand);font-size:11px}.section-finding{margin:14px 0 20px;padding-bottom:18px;border-bottom:1px dashed var(--line)}.section-finding:last-child{margin-bottom:0;padding-bottom:0;border-bottom:0}
     .finding{margin:14px 0;padding:20px;border:1px solid var(--line);border-left:5px solid #8792a6;border-radius:14px;background:#fff}.finding.warning{border-left-color:var(--warning)}.finding.watch{border-left-color:var(--watch)}.finding.positive{border-left-color:var(--positive)}.finding h3{margin:0 0 5px}.context{color:var(--muted);font-size:12px}.status{display:inline-block;margin-left:7px;padding:2px 8px;border-radius:99px;background:#eef2f7;font-size:11px}.status.supported{color:var(--positive);background:#e8f7f1}.status.partial,.status.unresolved{color:var(--watch);background:#fff5e5}
     .narrative{margin:12px 0;padding:12px 14px;border-radius:10px;background:#f4f7ff;border:1px dashed #c3d2f5}.narrative-tag{display:inline-block;margin-right:8px;padding:1px 7px;border-radius:99px;background:#dbe6ff;color:#2a4ba8;font-size:11px}
     .chain{margin:12px 0;padding:12px 14px;border-radius:10px;background:var(--soft)}.chain ol,.chain ul{margin:5px 0;padding-left:21px}.counter{color:#245d4d}.open{color:#76521b}.formula{margin-top:10px;color:var(--muted);font-size:12px}.citation{display:inline-block;margin:4px 4px 0 0;padding:2px 7px;border-radius:7px;background:#e8efff;color:var(--brand);font-size:11px}
@@ -22,10 +22,12 @@
 <body><main>
   <header class="hero">
     <h1>{{ report_title }}</h1>
-    <div class="meta">{{ companies|length }} 家公司 · {{ state.sources|length }} 份 PDF · 结论按证据支持程度区分</div>
+    <div class="meta">{{ research_scope_label }} · {{ state.sources|length }} 份 PDF · 结论按证据支持程度区分</div>
   </header>
   <div class="content">
-    <nav><a href="#conclusions">核心结论</a><a href="#questions">调查问题</a><a href="#visuals">趋势图</a><a href="#limits">未决问题</a><a href="#appendix">审计底稿</a></nav>
+    <nav><a href="#conclusions">核心结论</a><a href="#analysis">完整分析</a><a href="#questions">调查问题</a><a href="#visuals">趋势图</a><a href="#limits">未决问题</a><a href="#appendix">审计底稿</a></nav>
+
+    {% if state.request.question %}<aside class="focus"><strong>本次研究问题 / 关注点</strong><p>{{ state.request.question }}</p><p class="muted">该关注点用于调整核心结论的呈现顺序；完整分析仍覆盖下列全部研究章节。</p></aside>{% endif %}
 
     <section id="conclusions">
       <h2>核心结论</h2>
@@ -42,6 +44,33 @@
         <div>{% for evidence_id in finding.evidence_ids[:8] %}{% set ev=evidence_by_id.get(evidence_id) %}{% if ev %}<span class="citation">E{{ evidence_index[ev.id] }} · PDF {{ ev.page_number }}页</span>{% endif %}{% endfor %}</div>
       </article>
       {% else %}<p class="muted">当前资料不足以形成有证据链的研究结论。</p>{% endfor %}
+    </section>
+
+    <section id="analysis">
+      <h2>完整分析正文</h2>
+      <p class="muted">以下按研究章节保留全部确定性分析。章节默认折叠；标有“已列入核心结论”的发现与上方摘要属于同一结论。</p>
+      {% for section in state.analysis.sections %}
+      <details class="analysis-section">
+        <summary>{{ section.title }} <span class="status {{ section.status }}">{{ labels.analysis_status(section.status) }}</span> · {{ section.findings|length }} 条发现</summary>
+        <div class="detail-body">
+          <div class="section-meta"><strong>研究目标</strong>：{{ section.objective }}<br><strong>分析方法</strong>：{{ section.methodology }}</div>
+          {% if section.missing_inputs %}<div class="missing"><strong>资料缺口</strong><ul>{% for item in section.missing_inputs %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
+          {% for finding in section.findings %}
+          <article class="section-finding">
+            <h3>{{ finding.title }} <span class="status {{ finding.status }}">{{ labels.investigation_status(finding.status) }}</span>{% if finding.id in top_finding_ids %}<span class="headline-badge">已列入核心结论</span>{% endif %}</h3>
+            <div class="context">{{ finding.company_name or "综合判断" }}{% if finding.period %} · {{ labels.period(finding.period) }}{% endif %}</div>
+            <p>{{ finding.summary }}</p>
+            {% if finding.narrative %}<div class="narrative"><span class="narrative-tag">模型叙述</span>{{ finding.narrative }}</div>{% endif %}
+            {% if finding.reasoning_steps %}<div class="chain"><strong>验证链</strong><ol>{% for step in finding.reasoning_steps %}<li>{{ step }}</li>{% endfor %}</ol></div>{% endif %}
+            {% if finding.counter_evidence %}<div class="chain counter"><strong>反向或对冲证据</strong><ul>{% for item in finding.counter_evidence %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
+            {% if finding.unanswered_questions %}<div class="chain open"><strong>尚未回答</strong><ul>{% for item in finding.unanswered_questions %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
+            {% if finding.calculation %}<div class="formula">口径：{{ finding.calculation }}</div>{% endif %}
+            <div>{% for evidence_id in finding.evidence_ids %}{% set ev=evidence_by_id.get(evidence_id) %}{% if ev %}<span class="citation">E{{ evidence_index[ev.id] }} · PDF {{ ev.page_number }}页</span>{% endif %}{% endfor %}</div>
+          </article>
+          {% else %}<p class="muted">本章节因资料不足未形成可验证发现。</p>{% endfor %}
+        </div>
+      </details>
+      {% else %}<p class="muted">当前资料不足以形成完整分析章节。</p>{% endfor %}
     </section>
 
     <section id="questions">
@@ -74,6 +103,7 @@
         <div class="stat"><span>披露 / 派生事实</span><strong>{{ quality.reported_metrics }} / {{ quality.derived_metrics }}</strong></div>
         <div class="stat"><span>证据覆盖</span><strong>{{ "{:.1f}".format(quality.evidence_coverage_pct) }}%</strong><span class="muted">仅表示已采用事实有出处，不代表研究范围完整</span></div>
         <div class="stat"><span>计算血缘覆盖</span><strong>{{ "{:.1f}".format(quality.computation_coverage_pct) }}%</strong></div>
+        <div class="stat"><span>校验隔离指标</span><strong>{{ state.excluded_metric_ids|length }}</strong><span class="muted">未进入后续研究结论，相关派生结果同步隔离；原始事实和校验问题仍保留供审计</span></div>
         <div class="stat"><span>错误 / 警告</span><strong>{{ quality.errors }} / {{ quality.warnings }}</strong></div>
       </div></details>
 

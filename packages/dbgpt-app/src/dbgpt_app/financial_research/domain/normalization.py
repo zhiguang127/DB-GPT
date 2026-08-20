@@ -4,13 +4,36 @@ import re
 from collections import defaultdict
 from typing import Iterable, List, Tuple
 
-from .models import FinancialMetric, IssueSeverity, StatementType, ValidationIssue
+from .models import (
+    FinancialMetric,
+    IssueSeverity,
+    ParsedDocument,
+    StatementType,
+    ValidationIssue,
+)
 from .periods import period_display_name
 
 
 def canonical_company_name(value: str) -> str:
     """Remove layout noise without collapsing legally distinct company names."""
     return re.sub(r"\s+", "", value).strip("-_—")
+
+
+def identified_company_names(
+    metrics: Iterable[FinancialMetric] = (),
+    documents: Iterable[ParsedDocument] = (),
+) -> List[str]:
+    """Return company identities found in either documents or usable facts."""
+
+    names = {
+        canonical_company_name(value)
+        for value in [
+            *(metric.company_name for metric in metrics),
+            *(document.company_name or "" for document in documents),
+        ]
+        if canonical_company_name(value)
+    }
+    return sorted(names)
 
 
 def normalize_metrics(

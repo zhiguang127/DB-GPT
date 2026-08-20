@@ -3,7 +3,11 @@
 import asyncio
 
 from ...domain.models import ResearchMode, ResearchStage, ResearchState
-from ...domain.normalization import normalize_metrics
+from ...domain.normalization import (
+    canonical_company_name,
+    identified_company_names,
+    normalize_metrics,
+)
 from ...ports.workflow import WorkflowDependencies
 
 
@@ -76,12 +80,27 @@ class NormalizeMetricsStage:
         del dependencies
         state.metrics, issues = normalize_metrics(state.raw_metrics)
         state.validation_issues.extend(issues)
-        companies = {metric.company_name for metric in state.metrics}
-        state.mode = (
-            ResearchMode.MULTI_COMPANY
-            if len(companies) > 1
-            else ResearchMode.SINGLE_COMPANY
+        identity_metrics = [*state.raw_metrics, *state.metrics]
+        companies = identified_company_names(identity_metrics, state.documents)
+        metric_document_ids = {
+            metric.document_id
+            for metric in identity_metrics
+            if canonical_company_name(metric.company_name)
+        }
+        document_identity_complete = bool(state.documents) and all(
+            canonical_company_name(document.company_name or "")
+            or document.id in metric_document_ids
+            for document in state.documents
         )
+        if state.request.requested_mode:
+            state.mode = state.request.requested_mode
+        elif len(companies) > 1:
+            state.mode = ResearchMode.MULTI_COMPANY
+        elif len(companies) == 1 and document_identity_complete:
+            state.mode = ResearchMode.SINGLE_COMPANY
+        # When one or more documents have no recoverable identity, retain the
+        # initial file-based mode instead of silently collapsing a multi-file
+        # request into a single-company study.
         return (
             f"已形成 {len(state.metrics)} 条可比指标，识别 "
             f"{len(companies)} 家公司、{len(issues)} 个口径冲突"

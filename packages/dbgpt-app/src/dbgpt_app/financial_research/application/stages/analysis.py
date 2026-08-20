@@ -166,5 +166,6 @@ class SynthesizeResearchStage:
             state.computations,
             state.anomalies,
             state.hypotheses,
+            question=state.request.question,
         )
         return f"形成 {len(state.analysis['top_findings'])} 条独立核心结论"

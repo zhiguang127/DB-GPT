@@ -414,6 +414,117 @@ _RECEIPTS_MATERIALITY_PP = 2.0
 # comparison does not crowd out every conclusion about the second issuer.
 MAX_HEADLINES_PER_COMPANY = 8
 
+# User questions influence only the executive-summary order. They never decide
+# whether a deterministic investigation runs or whether a section is retained.
+_QUESTION_TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
+    "earnings_quality": ("利润", "盈利", "业绩", "净利润", "earnings", "profit"),
+    "core_earnings": ("核心盈利", "扣非", "可持续盈利", "core earnings"),
+    "gross_margin": ("毛利", "毛利率", "gross margin"),
+    "expense_pressure": ("费用", "费用率", "研发投入", "expense"),
+    "non_recurring_support": (
+        "非经常性",
+        "非经常损益",
+        "一次性损益",
+        "non-recurring",
+    ),
+    "cash_conversion": ("经营现金流", "现金含量", "现金转化", "cash flow"),
+    "receipts_quality": ("回款", "收现", "销售收款", "cash collection"),
+    "working_capital": (
+        "营运资本",
+        "应收",
+        "存货",
+        "应付",
+        "working capital",
+        "receivable",
+        "inventory",
+    ),
+    "capital_returns": ("资本回报", "净资产收益率", "roe", "return on equity"),
+    "asset_occupation": (
+        "资产占用",
+        "应收",
+        "存货",
+        "固定资产",
+        "asset occupation",
+    ),
+    "financial_structure": (
+        "负债",
+        "杠杆",
+        "偿债",
+        "债务",
+        "leverage",
+        "debt",
+    ),
+    "note_receivables_aging": (
+        "应收",
+        "账龄",
+        "坏账",
+        "receivable",
+        "aging",
+    ),
+    "note_goodwill": ("商誉", "减值", "goodwill", "impairment"),
+    "note_related_party": ("关联方", "关联交易", "related party"),
+    "peer_comparison": ("同行", "同业", "横向", "对比", "peer"),
+    "audit_disclosures": ("审计", "审计意见", "关键审计事项", "audit"),
+    "data_quality": ("数据质量", "口径", "校验", "data quality"),
+}
+
+_QUESTION_STOP_TERMS = {
+    "分析",
+    "财报",
+    "报告",
+    "公司",
+    "重点",
+    "关注",
+    "风险",
+    "问题",
+    "情况",
+    "如何",
+    "是否",
+    "研究",
+    "说明",
+    "一下",
+    "这个",
+    "这些",
+    "analysis",
+    "analyze",
+    "report",
+    "company",
+    "risk",
+}
+
+
+def _question_relevance(finding: ResearchFinding, question: str) -> int:
+    """Return a deterministic lexical relevance score for headline ranking."""
+    normalized_question = question.casefold().strip()
+    if not normalized_question:
+        return 0
+    finding_text = " ".join(
+        [
+            finding.topic_key.replace("_", " "),
+            finding.title,
+            finding.summary,
+            *(finding.reasoning_steps or []),
+            *(finding.unanswered_questions or []),
+        ]
+    ).casefold()
+    score = 0
+    for alias in _QUESTION_TOPIC_ALIASES.get(finding.topic_key, ()):
+        if alias.casefold() in normalized_question:
+            score += 100 + len(alias)
+
+    terms = set(re.findall(r"[a-z][a-z0-9_-]{2,}", normalized_question))
+    for chunk in re.findall(r"[\u3400-\u9fff]+", normalized_question):
+        max_width = min(6, len(chunk))
+        for width in range(2, max_width + 1):
+            terms.update(
+                chunk[index : index + width] for index in range(len(chunk) - width + 1)
+            )
+    for term in terms - _QUESTION_STOP_TERMS:
+        if term in finding_text:
+            score += min(len(term), 6)
+    return score
+
+
 _EXPENSE_RATIO_LABELS = (
     ("selling_expense_ratio", "销售费用率"),
     ("administrative_expense_ratio", "管理费用率"),
@@ -1780,6 +1891,7 @@ def synthesize_research(
     computations: Iterable[Computation] = (),
     anomalies: Iterable[FinancialAnomaly] = (),
     hypotheses: Iterable[ResearchHypothesis] = (),
+    question: str = "",
 ) -> dict:
     metric_list = list(metrics)
     section_list = list(sections)
@@ -1801,16 +1913,16 @@ def synthesize_research(
         InvestigationStatus.UNRESOLVED: 2,
         InvestigationStatus.REJECTED: 3,
     }
-    # Headline selection is per company and ranked by materiality, so a filing
-    # that supports more distinct conclusions surfaces more of them. The former
-    # global cap of five meant a 200-page report and a 20-page one produced the
-    # same number of headlines regardless of how much evidence each carried.
+    # Headline selection is per company and ranked by question relevance, then
+    # evidence status and materiality. The question changes the executive order
+    # only: every section and finding remains in ``sections`` below.
     top_findings: list[ResearchFinding] = []
     seen_topics: set[tuple[Optional[str], str]] = set()
     per_company: dict[Optional[str], int] = defaultdict(int)
     for finding in sorted(
         all_findings,
         key=lambda item: (
+            -_question_relevance(item, question),
             tone_order[item.tone],
             status_order[item.status],
             -item.materiality,
