@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ report_title }}</title>
+  <style>
+    :root{--ink:#172033;--muted:#667085;--line:#e1e7ef;--brand:#315fdf;--soft:#f6f8fb;--positive:#087a55;--watch:#b66b00;--warning:#c83d4d}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#edf1f6;color:var(--ink);font-family:"Noto Sans CJK SC","Microsoft YaHei",sans-serif;line-height:1.65}
+    main{max-width:1080px;margin:28px auto;background:#fff;border-radius:22px;box-shadow:0 18px 60px #17203318;overflow:hidden}.hero{padding:42px 48px;color:#fff;background:linear-gradient(125deg,#193b91,#315fdf 60%,#6945d8)}
+    h1{margin:0 0 8px;font-size:32px}.meta{color:#e3eaff}.content{padding:32px 48px 50px}nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:26px}nav a{padding:6px 10px;border-radius:8px;background:#edf3ff;color:var(--brand);text-decoration:none;font-size:13px}
+    h2{margin:38px 0 15px;padding-bottom:8px;border-bottom:1px solid var(--line);font-size:23px}h3{margin:22px 0 10px}.muted{color:var(--muted)}
+    .finding{margin:14px 0;padding:20px;border:1px solid var(--line);border-left:5px solid #8792a6;border-radius:14px;background:#fff}.finding.warning{border-left-color:var(--warning)}.finding.watch{border-left-color:var(--watch)}.finding.positive{border-left-color:var(--positive)}.finding h3{margin:0 0 5px}.context{color:var(--muted);font-size:12px}.status{display:inline-block;margin-left:7px;padding:2px 8px;border-radius:99px;background:#eef2f7;font-size:11px}.status.supported{color:var(--positive);background:#e8f7f1}.status.partial,.status.unresolved{color:var(--watch);background:#fff5e5}
+    .narrative{margin:12px 0;padding:12px 14px;border-radius:10px;background:#f4f7ff;border:1px dashed #c3d2f5}.narrative-tag{display:inline-block;margin-right:8px;padding:1px 7px;border-radius:99px;background:#dbe6ff;color:#2a4ba8;font-size:11px}
+    .chain{margin:12px 0;padding:12px 14px;border-radius:10px;background:var(--soft)}.chain ol,.chain ul{margin:5px 0;padding-left:21px}.counter{color:#245d4d}.open{color:#76521b}.formula{margin-top:10px;color:var(--muted);font-size:12px}.citation{display:inline-block;margin:4px 4px 0 0;padding:2px 7px;border-radius:7px;background:#e8efff;color:var(--brand);font-size:11px}
+    .question{margin:9px 0;padding:13px 15px;border-radius:11px;background:var(--soft)}.question strong{display:block}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}.stat{padding:15px;border:1px solid var(--line);border-radius:12px;background:var(--soft)}.stat strong{display:block;font-size:22px}
+    .chart{margin:14px 0;border:1px solid var(--line);border-radius:14px;overflow:hidden}.chart svg{display:block;width:100%;height:auto}.missing{margin:10px 0;padding:12px 14px;border-radius:10px;background:#fff8eb;color:#76521b}
+    details{margin:12px 0;border:1px solid var(--line);border-radius:12px;background:#fff}summary{cursor:pointer;padding:14px 16px;font-weight:700;background:var(--soft);border-radius:12px}.detail-body{padding:15px}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{background:var(--soft)}th:first-child,td:first-child{text-align:left}.evidence{margin:8px 0;padding:12px;border-radius:9px;background:var(--soft);white-space:pre-wrap;font-size:12px}.disclaimer{margin-top:28px;padding:14px;border-radius:11px;background:var(--soft);color:var(--muted);font-size:12px}
+    @media(max-width:700px){main{margin:0;border-radius:0}.hero,.content{padding:26px 21px}h1{font-size:26px}}@media print{body{background:#fff}main{box-shadow:none;margin:0;max-width:none}nav{display:none}details{display:block}details>.detail-body{display:block}}
+  </style>
+</head>
+<body><main>
+  <header class="hero">
+    <h1>{{ report_title }}</h1>
+    <div class="meta">{{ companies|length }} 家公司 · {{ state.sources|length }} 份 PDF · 结论按证据支持程度区分</div>
+  </header>
+  <div class="content">
+    <nav><a href="#conclusions">核心结论</a><a href="#questions">调查问题</a><a href="#visuals">趋势图</a><a href="#limits">未决问题</a><a href="#appendix">审计底稿</a></nav>
+
+    <section id="conclusions">
+      <h2>核心结论</h2>
+      {% for finding in state.analysis.top_findings %}
+      <article class="finding {{ finding.tone }}">
+        <h3>{{ finding.title }} <span class="status {{ finding.status }}">{{ labels.investigation_status(finding.status) }}</span></h3>
+        <div class="context">{{ finding.company_name or "综合判断" }}{% if finding.period %} · {{ labels.period(finding.period) }}{% endif %}</div>
+        <p>{{ finding.summary }}</p>
+        {% if finding.narrative %}<div class="narrative"><span class="narrative-tag">模型叙述</span>{{ finding.narrative }}</div>{% endif %}
+        {% if finding.reasoning_steps %}<div class="chain"><strong>验证链</strong><ol>{% for step in finding.reasoning_steps %}<li>{{ step }}</li>{% endfor %}</ol></div>{% endif %}
+        {% if finding.counter_evidence %}<div class="chain counter"><strong>反向或对冲证据</strong><ul>{% for item in finding.counter_evidence %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if finding.unanswered_questions %}<div class="chain open"><strong>尚未回答</strong><ul>{% for item in finding.unanswered_questions %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if finding.calculation %}<div class="formula">口径：{{ finding.calculation }}</div>{% endif %}
+        <div>{% for evidence_id in finding.evidence_ids[:8] %}{% set ev=evidence_by_id.get(evidence_id) %}{% if ev %}<span class="citation">E{{ evidence_index[ev.id] }} · PDF {{ ev.page_number }}页</span>{% endif %}{% endfor %}</div>
+      </article>
+      {% else %}<p class="muted">当前资料不足以形成有证据链的研究结论。</p>{% endfor %}
+    </section>
+
+    <section id="questions">
+      <h2>异常与调查问题</h2>
+      {% for anomaly in state.anomalies %}
+      <div class="question"><strong>{{ anomaly.company_name }} · {{ anomaly.signal }}</strong>
+        {% for hypothesis in state.hypotheses if hypothesis.anomaly_id == anomaly.id %}<div>{{ hypothesis.question }} — <span class="status {{ hypothesis.status.value }}">{{ labels.investigation_status(hypothesis.status) }}</span></div>{% endfor %}
+      </div>
+      {% else %}<p class="muted">未发现达到调查选择条件的跨期或跨指标背离。</p>{% endfor %}
+    </section>
+
+    <section id="visuals">
+      <h2>关键趋势</h2>
+      {% for chart_svg in chart_svgs %}<div class="chart">{{ chart_svg | safe }}</div>{% else %}<p class="muted">当前数据不足以生成趋势图。</p>{% endfor %}
+      {% if state.analysis.peer_comparison.period %}<h3>同业比较</h3>
+      <div class="table-wrap"><table><thead><tr><th>指标</th><th>公司</th><th>排名</th><th>数值</th></tr></thead><tbody>
+      {% for name, rankings in state.analysis.peer_comparison.metrics.items() %}{% for item in rankings %}<tr><td>{{ item.display_name }}</td><td>{{ item.company }}</td><td>{{ item.rank }}</td><td>{{ labels.amount(item.value, item.unit, item.currency) }}</td></tr>{% endfor %}{% endfor %}
+      </tbody></table></div>{% endif %}
+    </section>
+
+    <section id="limits">
+      <h2>未决问题与资料边界</h2>
+      {% for limitation in state.analysis.limitations %}<div class="missing">{{ limitation }}</div>{% else %}<p class="muted">当前调查未记录额外资料缺口。</p>{% endfor %}
+    </section>
+
+    <section id="appendix">
+      <h2>审计底稿</h2>
+      {% set quality = state.analysis.quality %}
+      <details><summary>追溯与计算审计</summary><div class="detail-body grid">
+        <div class="stat"><span>披露 / 派生事实</span><strong>{{ quality.reported_metrics }} / {{ quality.derived_metrics }}</strong></div>
+        <div class="stat"><span>证据覆盖</span><strong>{{ "{:.1f}".format(quality.evidence_coverage_pct) }}%</strong><span class="muted">仅表示已采用事实有出处，不代表研究范围完整</span></div>
+        <div class="stat"><span>计算血缘覆盖</span><strong>{{ "{:.1f}".format(quality.computation_coverage_pct) }}%</strong></div>
+        <div class="stat"><span>错误 / 警告</span><strong>{{ quality.errors }} / {{ quality.warnings }}</strong></div>
+      </div></details>
+
+      <details><summary>结构化指标</summary><div class="detail-body">
+      {% for company in companies %}<h3>{{ company }}</h3><div class="table-wrap"><table><thead><tr><th>指标</th><th>期间</th><th>数值</th><th>口径</th><th>证据</th></tr></thead><tbody>
+      {% for name, items in metrics_by_company[company].items() %}{% for metric in items %}<tr><td>{{ metric.display_name }}</td><td>{{ labels.period(metric.period) }}</td><td>{{ labels.metric(metric) }}</td><td>{{ labels.statement_type(metric.statement_type) }} · {{ labels.scope(metric.scope) }}</td><td>{% for evidence_id in metric.evidence_ids %}{% set ev=evidence_by_id.get(evidence_id) %}{% if ev %}E{{ evidence_index[ev.id] }} {% endif %}{% endfor %}</td></tr>{% endfor %}{% endfor %}
+      </tbody></table></div>{% endfor %}</div></details>
+
+      <details><summary>版本化计算血缘</summary><div class="detail-body table-wrap"><table><thead><tr><th>输出</th><th>期间</th><th>表达式</th><th>输入</th><th>哈希</th></tr></thead><tbody>
+      {% for row in computation_rows %}<tr><td>{{ row.output.display_name if row.output else row.computation.formula_id }}</td><td>{{ labels.period(row.output.period) if row.output else "—" }}</td><td>{{ row.computation.expression }}</td><td>{% for input in row.inputs %}{{ input.display_name }}{% if not loop.last %}；{% endif %}{% endfor %}</td><td>{{ row.computation.program_hash[:12] }}…</td></tr>{% endfor %}
+      </tbody></table></div></details>
+
+      <details><summary>PDF 文档地图</summary><div class="detail-body">
+      {% for item in document_maps %}<h3>{{ item.document.company_name or item.document.file_name }}</h3><div class="table-wrap"><table><thead><tr><th>表格</th><th>类型</th><th>页码</th><th>列</th><th>行数</th></tr></thead><tbody>{% for table in item.tables %}<tr><td>{{ table.name }}</td><td>{{ labels.statement_type(table.statement_type) }}</td><td>{{ table.start_page }}–{{ table.end_page }}</td><td>{{ table.columns | join(" / ") }}</td><td>{{ table.rows | length }}</td></tr>{% endfor %}</tbody></table></div>{% endfor %}
+      </div></details>
+
+      <details><summary>来源证据索引（{{ state.evidence|length }} 条）</summary><div class="detail-body">
+      {% for ev in state.evidence %}{% set source=sources_by_id.get(ev.source_id) %}<div class="evidence"><strong>E{{ loop.index }} · {{ source.display_name if source else ev.source_id }} · PDF {{ ev.page_number }}页{% if ev.table_name %} · {{ ev.table_name }}{% endif %}</strong><br>{{ ev.quote }}{% if ev.cell_value %}<br><span class="muted">采用值：{{ ev.cell_value }}</span>{% endif %}</div>{% endfor %}
+      </div></details>
+    </section>
+
+    <div class="disclaimer">本报告基于所列 PDF 自动生成，不构成投资建议。“证据支持”表示当前主张由已抽取证据支持；“部分支持”表示主张方向有依据，但原因拆解或资料仍不完整。带“模型叙述”标记的文字由模型基于已验证结论撰写，其中不含未经确定性计算产生的数字。</div>
+  </div>
+</main></body></html>
