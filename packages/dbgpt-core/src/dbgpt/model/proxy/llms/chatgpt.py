@@ -90,6 +90,16 @@ class OpenAICompatibleDeployModelParameters(LLMDeployModelParameters):
         default=100, metadata={"help": _("Model concurrency limit")}
     )
 
+    enable_thinking: Optional[bool] = field(
+        default=None,
+        metadata={
+            "help": _(
+                "Whether to enable thinking mode for Qwen models served through an "
+                "OpenAI-compatible API."
+            ),
+        },
+    )
+
 
 async def chatgpt_generate_stream(
     model: ProxyModel, tokenizer, params, device, context_len=2048
@@ -199,15 +209,22 @@ class OpenAILLMClient(ProxyLLMClient):
         default_executor: Optional[Executor] = None,
     ) -> "OpenAILLMClient":
         """Create a new client with the model parameters."""
+        openai_kwargs: Dict[str, Any] = {}
+        model_name = model_params.real_provider_model_name
+        if model_params.enable_thinking is not None and "qwen" in model_name.lower():
+            openai_kwargs["extra_body"] = {
+                "enable_thinking": model_params.enable_thinking
+            }
         return cls(
             api_key=model_params.api_key,
             api_base=model_params.api_base,
             api_type=model_params.api_type,
             api_version=model_params.api_version,
-            model=model_params.real_provider_model_name,
+            model=model_name,
             proxy=model_params.http_proxy,
-            model_alias=model_params.real_provider_model_name,
+            model_alias=model_name,
             context_length=max(model_params.context_length or 8192, 8192),
+            openai_kwargs=openai_kwargs,
             # full_url=model_params.proxy_server_url,
         )
 

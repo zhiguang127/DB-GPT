@@ -44,6 +44,8 @@ name = "${env:LLM_MODEL_NAME:-gpt-4o}"
 provider = "${env:LLM_MODEL_PROVIDER:-proxy/openai}"
 api_base = "${env:OPENAI_API_BASE:-https://api.openai.com/v1}"
 api_key = "${env:OPENAI_API_KEY}"
+# Qwen and other compatible providers accept this through extra_body.
+enable_thinking = "${env:ENABLE_THINKING:-false}"
 
 [[models.embeddings]]
 name = "${env:EMBEDDING_MODEL_NAME:-text-embedding-3-small}"
