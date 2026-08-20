@@ -2,7 +2,7 @@
 
 import hashlib
 from collections import defaultdict
-from typing import Iterable, List
+from typing import Iterable, List, Set
 
 from .models import (
     MONETARY_UNITS,
@@ -25,12 +25,75 @@ from .periods import (
 )
 
 REQUIRED_METRICS = ("revenue", "net_profit", "operating_cash_flow")
+# These issues remain ERRORs in the audit trail, but cannot safely identify one
+# concrete fact as the culprit:
+#
+# * normalization resolves ``cross_document_conflict`` with an explicit,
+#   deterministic primary-selection rule;
+# * an accounting identity mismatch proves that at least one operand is wrong,
+#   but does not prove which one. Quarantining every operand would discard whole
+#   statement groups (and their derived descendants) on ordinary disclosure
+#   rounding or one bad extraction.
+#
+# They therefore remain visible research limitations instead of automatic
+# metric-level quarantine signals. A later validator may emit a separate,
+# attributable ERROR when it can identify the unsafe fact.
+NON_BLOCKING_ERROR_CODES = frozenset(
+    {
+        "cross_document_conflict",
+        "balance_sheet_assets_mismatch",
+        "balance_sheet_liabilities_mismatch",
+        "balance_sheet_equation_mismatch",
+        "operating_cash_flow_mismatch",
+        "cash_reconciliation_mismatch",
+        "net_profit_attribution_mismatch",
+    }
+)
 
 
 def _growth(current: float, previous: float) -> float | None:
     if previous == 0:
         return None
     return (current - previous) / abs(previous) * 100
+
+
+def blocked_metric_ids(
+    metrics: Iterable[FinancialMetric],
+    issues: Iterable[ValidationIssue],
+    computations: Iterable[Computation] = (),
+) -> Set[str]:
+    """Return metric IDs that must not enter research analysis.
+
+    Only an ``ERROR`` attached to a concrete metric is a blocking signal.
+    Document-level completeness issues intentionally have no metric IDs and
+    remain report limitations rather than invalidating every usable fact in
+    the document.  Blocking is propagated through computation lineage so a
+    derived metric cannot survive after one of its inputs has been rejected.
+    """
+
+    known_metric_ids = {metric.id for metric in metrics}
+    blocked = {
+        metric_id
+        for issue in issues
+        if issue.severity == IssueSeverity.ERROR
+        and issue.code not in NON_BLOCKING_ERROR_CODES
+        for metric_id in issue.metric_ids
+        if metric_id in known_metric_ids
+    }
+    computation_list = list(computations)
+    changed = True
+    while changed:
+        changed = False
+        for computation in computation_list:
+            if computation.metric_id not in known_metric_ids:
+                continue
+            if computation.metric_id in blocked or not blocked.intersection(
+                computation.input_metric_ids
+            ):
+                continue
+            blocked.add(computation.metric_id)
+            changed = True
+    return blocked
 
 
 def validate_metrics(

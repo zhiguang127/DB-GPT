@@ -62,11 +62,13 @@ class ResearchTaskPlanner:
             ParseDocumentsStage(),
             ExtractMetricsStage(),
             NormalizeMetricsStage(),
+            # Cross-check the normalized reported facts before they become
+            # inputs to any deterministic formula.  The second reader does
+            # not select a replacement value; it records an independent
+            # constraint for the final validation gate.
+            CrossCheckExtractionStage(),
             DeriveMetricsStage(),
             ValidateMetricsStage(),
-            # The second table reading only constrains facts that were already
-            # selected, so it runs after validation rather than replacing it.
-            CrossCheckExtractionStage(),
             DetectAnomaliesStage(),
             InvestigateEarningsStage(),
             InvestigateCashStage(),
@@ -101,14 +103,15 @@ class ResearchTaskPlanner:
             ResearchStage.PARSE: [ResearchStage.INITIALIZE],
             ResearchStage.EXTRACT: [ResearchStage.PARSE],
             ResearchStage.NORMALIZE: [ResearchStage.EXTRACT],
-            ResearchStage.DERIVE: [ResearchStage.NORMALIZE],
+            ResearchStage.DERIVE: [
+                ResearchStage.CROSS_CHECK
+                if ResearchStage.CROSS_CHECK in selected
+                else ResearchStage.NORMALIZE
+            ],
             ResearchStage.VALIDATE: [ResearchStage.DERIVE],
         }
         if ResearchStage.CROSS_CHECK in selected:
-            dependencies[ResearchStage.CROSS_CHECK] = [ResearchStage.VALIDATE]
-            investigation_root = ResearchStage.CROSS_CHECK
-        else:
-            investigation_root = ResearchStage.VALIDATE
+            dependencies[ResearchStage.CROSS_CHECK] = [ResearchStage.NORMALIZE]
         investigation_stages = [
             item
             for item in (
@@ -120,7 +123,7 @@ class ResearchTaskPlanner:
             )
             if item in selected
         ]
-        dependencies[ResearchStage.DETECT_ANOMALIES] = [investigation_root]
+        dependencies[ResearchStage.DETECT_ANOMALIES] = [ResearchStage.VALIDATE]
         for item in investigation_stages:
             dependencies[item] = [ResearchStage.DETECT_ANOMALIES]
         dependencies[ResearchStage.REVIEW_DISCLOSURES] = investigation_stages

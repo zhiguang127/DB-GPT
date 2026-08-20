@@ -3,7 +3,11 @@
 from ...domain.cross_check import cross_check_extraction
 from ...domain.derivation import derive_metrics_with_lineage
 from ...domain.models import ResearchStage, ResearchState
-from ...domain.validation import validate_findings, validate_metrics
+from ...domain.validation import (
+    blocked_metric_ids,
+    validate_findings,
+    validate_metrics,
+)
 from ...ports.workflow import WorkflowDependencies
 
 
@@ -30,9 +34,9 @@ class DeriveMetricsStage:
 class ValidateMetricsStage:
     stage = ResearchStage.VALIDATE
     title = "校验和复算"
-    description = "逐公司检查核心指标、来源证据、冲突值和同比计算"
+    description = "逐公司检查核心指标、来源证据、冲突值和同比计算，并隔离错误事实"
     category = "证据审计"
-    deliverable = "数据质量、证据完整性与同比复算结果"
+    deliverable = "数据质量、证据完整性、同比复算与错误指标隔离结果"
     start_message = "正在逐公司复算同比并检查证据完整性"
 
     async def execute(
@@ -47,7 +51,37 @@ class ValidateMetricsStage:
             computations=state.computations,
         )
         state.validation_issues.extend(issues)
-        return f"校验完成，共发现 {len(state.validation_issues)} 个提示"
+        blocked = blocked_metric_ids(
+            state.metrics,
+            state.validation_issues,
+            state.computations,
+        )
+        if blocked:
+            state.excluded_metric_ids = list(
+                dict.fromkeys(
+                    [
+                        *state.excluded_metric_ids,
+                        *(
+                            metric.id
+                            for metric in state.metrics
+                            if metric.id in blocked
+                        ),
+                    ]
+                )
+            )
+            state.metrics = [
+                metric for metric in state.metrics if metric.id not in blocked
+            ]
+            state.computations = [
+                computation
+                for computation in state.computations
+                if computation.metric_id not in blocked
+                and not blocked.intersection(computation.input_metric_ids)
+            ]
+        return (
+            f"校验完成，新增 {len(issues)} 个提示；"
+            f"隔离 {len(blocked)} 条错误指标，文档级缺项保留为研究限制"
+        )
 
 
 class CrossCheckExtractionStage:

@@ -440,6 +440,10 @@ class ResearchState(BaseModel):
     analysis_sections: List[AnalysisSection] = Field(default_factory=list)
     analysis: Dict[str, Any] = Field(default_factory=dict)
     validation_issues: List[ValidationIssue] = Field(default_factory=list)
+    # IDs quarantined by the validation gate.  Reported source facts remain in
+    # ``raw_metrics`` for audit, while ``metrics`` contains only facts allowed
+    # to participate in investigations and synthesis.
+    excluded_metric_ids: List[str] = Field(default_factory=list)
     charts: List[ChartArtifact] = Field(default_factory=list)
     report: Optional[ReportArtifact] = None
     fact_store_path: Optional[str] = None
