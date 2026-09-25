@@ -213,3 +213,7 @@ test_docs
 openspec/
 docs/superpowers/
 .gstack/
+
+# Local PDFs and runtime scratch for financial-analysis smoke checks
+/.work/financial-analysis/
+/testpdf/*.pdf

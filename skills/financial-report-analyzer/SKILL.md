@@ -11,7 +11,9 @@ description: 专门用于上市公司财报（如年度报告、季度报告）�
 
 1. **数据提取与结构化**：
    - 使用 `execute_skill_script_file` 工具执行 `scripts/extract_financials.py` 脚本，传入财报文件路径（`file_path` 参数），自动提取营收、净利润、资产、负债等核心数值。
-   - 脚本支持 PDF 文件（通过 pdfplumber 解析）和纯文本文件，返回 JSON 格式的结构化数据。
+   - 当前提取器支持中文、人民币、非金融企业的文本型年度报告 PDF（通过 pdfplumber 解析规则表格），返回带物理页码的 `facts` 和 `evidence`，并保留旧计算脚本使用的顶层数值字段。纯文本、扫描件和未识别版式不再使用全文正则猜测数值。
+   - `normalizedValue` 为十进制字符串；顶层数值仅用于兼容旧脚本。`net_profit` 明确为归母净利润，`non_recurring_net_profit` 为扣非归母净利润，`equity` 为归母净资产；`prev_*` 为上一年度可用值。
+   - 检查 `_meta.status`、`missing_fields` 和事实的 `extractionStatus`。缺项或冲突返回 null，不得补零或用其他口径替代。自动提取的 `qualityStatus=warning` 表示待核对，不是人工验证结果。只有实际披露的比较期才能用于趋势分析。
 
 2. **财务比率计算**：
    - 使用 `execute_skill_script_file` 执行 `scripts/calculate_ratios.py`，传入 Step 1 的 JSON 数据。
@@ -88,7 +90,7 @@ Step 6: terminate(result="简短摘要")
 ## 资源使用说明
 
 - **脚本**（均通过 `execute_skill_script_file` 执行）：
-  - `scripts/extract_financials.py`：接收 `file_path` 参数，读取财报文件（支持 PDF 和文本格式），提取核心财务数据。
+  - `scripts/extract_financials.py`：接收 `file_path` 参数，读取支持的年度报告 PDF，提取核心财务事实和来源；使用同目录 `financial_document.py` 作为解析模块。
   - `scripts/calculate_ratios.py`：计算财务比率，输出 30 个模板占位符键值。系统自动记录结果。
   - `scripts/generate_charts.py`：生成 3 张可视化图表（matplotlib），系统自动处理图片复制。
   - `scripts/fill_template.py`：（备用）接收 `ratio_data`、`chart_paths`、`analysis` 三个参数，读取 HTML 模板并替换所有占位符。正常情况下不需要使用此脚本，因为 html_interpreter 的 template_path 模式会自动完成模板填充。
@@ -104,5 +106,5 @@ Step 6: terminate(result="简短摘要")
 - **必须使用 `execute_skill_script_file`** 执行脚本（不要用 shell_interpreter），因为 `execute_skill_script_file` 会自动处理图片复制和数据记录。
 - 脚本提取可能受排版影响，建议在计算前人工核对提取的关键数值。
 - 始终关注"非经常性损益"，以评估公司核心业务的真实盈利能力。
-- 对比至少三年的历史数据，以识别趋势。
+- 对比报告实际披露的历史期间；不足三年时说明缺项，不补造数值。
 - `generate_charts.py` 依赖 matplotlib，请确保环境中已安装该库。
