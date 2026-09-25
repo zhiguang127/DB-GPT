@@ -20,18 +20,12 @@ import AgentRunPanel from './AgentRunPanel';
 import AskDbGPTDock from './AskDbGPTDock';
 import EvidencePanel from './EvidencePanel';
 import ExecutionProcessPanel from './ExecutionProcessPanel';
+import { ReportDataProvider, useReportData } from './ReportDataContext';
 import { BalanceTab, CashFlowTab, OverviewTab, ProfitabilityTab, StatementsTab } from './ReportSections';
 import SourcePreviewPanel from './SourcePreviewPanel';
 import styles from './financial-analysis.module.css';
-import {
-  agentExecutionSteps,
-  coreFindingIds,
-  evidenceExcerptMap,
-  report,
-  sourceDocumentMap,
-  sourceDocuments,
-} from './mock-data';
-import { EvidenceExcerpt } from './types';
+import { runStatusLabels } from './report-data';
+import { EvidenceExcerpt, EvidenceSelection, ReportData } from './types';
 
 type WorkspaceTab = 'report' | 'execution' | 'files' | 'skill' | 'evidence';
 const workspaceTabs: Array<{ key: WorkspaceTab; label: string; icon: React.ReactNode }> = [
@@ -41,93 +35,110 @@ const workspaceTabs: Array<{ key: WorkspaceTab; label: string; icon: React.React
   { key: 'skill', label: 'financial-report-analyzer', icon: <AppstoreOutlined /> },
   { key: 'evidence', label: '证据', icon: <FileSearchOutlined /> },
 ];
-const capabilityNote =
-  '当前页面使用本地示例数据。结构化证据链、来源预览和问答为交互演示，未连接 Skill 后端或调用模型。';
+const capabilityNote = (mode: ReportData['mode']) =>
+  mode === 'demo'
+    ? '当前页面使用本地示例数据。结构化证据链、来源预览和问答为交互演示，未连接 Skill 后端或调用模型。'
+    : '当前页面展示所选报告数据。缺少的指标与来源会明确标记，追问服务尚未接入。';
 
-const ArtifactContext: React.FC = () => (
-  <section className={styles.reportContext}>
-    <div className={styles.contextByline}>
-      Financial Analysis <span>／ {report.run.skillName}</span>
-    </div>
-    <h1>{report.companyName}</h1>
-    <div className={styles.meta}>
-      {report.title} · {report.statementScope} · {report.currency} · {sourceDocuments[0].fileName}
-    </div>
-  </section>
-);
+const ArtifactContext: React.FC = () => {
+  const {
+    data: { report, documents },
+  } = useReportData();
+  return (
+    <section className={styles.reportContext}>
+      <div className={styles.contextByline}>
+        Financial Analysis <span>／ {report.run.skillName}</span>
+      </div>
+      <h1>{report.companyName}</h1>
+      <div className={styles.meta}>
+        {report.title} · {report.statementScope} · {report.currency} ·{' '}
+        {documents.map(item => item.fileName).join(' / ') || '来源文件未提供'}
+      </div>
+    </section>
+  );
+};
 
 const FilesPanel: React.FC<{ onOpenSource: (evidence: EvidenceExcerpt) => void; onOpenArtifact: () => void }> = ({
   onOpenSource,
   onOpenArtifact,
-}) => (
-  <div className={styles.utilityPanel}>
-    <h2>任务文件</h2>
-    <p className={styles.sectionDescription}>本轮输入资料与分析交付物</p>
-    {[
-      {
-        name: sourceDocuments[0].fileName,
-        detail: '上传资料 · PDF · 7.5 MB',
+}) => {
+  const { data } = useReportData();
+  const files = [
+    ...data.documents.map(document => {
+      const evidence = data.evidence.find(item => item.sourceDocumentId === document.id);
+      return {
+        name: document.fileName,
+        detail: `上传资料 · PDF${document.sizeBytes === undefined ? '' : ` · ${(document.sizeBytes / 1024 / 1024).toFixed(1)} MB`}`,
         icon: <FilePdfOutlined />,
-        action: () => onOpenSource(evidenceExcerptMap.E6),
-      },
-      {
-        name: 'Financial Analysis Artifact.html',
-        detail: '分析报告 · HTML',
-        icon: <FileTextOutlined />,
-        action: onOpenArtifact,
-      },
-      { name: 'financial_trends.png', detail: '图表输出 · PNG', icon: <FileTextOutlined /> },
-      { name: 'financial_ratios.json', detail: '结构化指标 · JSON', icon: <CodeOutlined /> },
-    ].map(file => (
-      <div className={styles.fileRow} key={file.name}>
-        {file.icon}
-        <div>
-          <strong>{file.name}</strong>
-          <div className={styles.meta}>{file.detail}</div>
+        action: evidence ? () => onOpenSource(evidence) : undefined,
+      };
+    }),
+    ...data.artifacts.map(artifact => ({
+      name: artifact.name,
+      detail: artifact.detail,
+      icon: artifact.kind === 'json' ? <CodeOutlined /> : <FileTextOutlined />,
+      action: artifact.kind === 'html' ? onOpenArtifact : undefined,
+    })),
+  ];
+  return (
+    <div className={styles.utilityPanel}>
+      <h2>任务文件</h2>
+      <p className={styles.sectionDescription}>本轮输入资料与分析交付物</p>
+      {!files.length && <p className={styles.meta}>暂无文件</p>}
+      {files.map(file => (
+        <div className={styles.fileRow} key={file.name}>
+          {file.icon}
+          <div>
+            <strong>{file.name}</strong>
+            <div className={styles.meta}>{file.detail}</div>
+          </div>
+          {file.action && (
+            <button type='button' className={styles.textLink} onClick={file.action}>
+              查看 →
+            </button>
+          )}
         </div>
-        {file.action && (
-          <button type='button' className={styles.textLink} onClick={file.action}>
-            查看 →
-          </button>
-        )}
-      </div>
-    ))}
-  </div>
-);
-const SkillPanel: React.FC = () => (
-  <div className={styles.utilityPanel}>
-    <div className={styles.meta}>DB-GPT Skill</div>
-    <h2>financial-report-analyzer</h2>
-    <p className={styles.sectionDescription}>提取财务指标、执行比率计算、生成图表并形成财务分析报告。</p>
-    <dl className={styles.driverTable}>
-      <div>
-        <dt>提取指标</dt>
-        <dd>extract_financials.py</dd>
-      </div>
-      <div>
-        <dt>比率计算</dt>
-        <dd>calculate_ratios.py</dd>
-      </div>
-      <div>
-        <dt>生成图表</dt>
-        <dd>generate_charts.py</dd>
-      </div>
-    </dl>
-    <details className={styles.developerNote}>
-      <summary>关于此工作区</summary>
-      <p>{capabilityNote}</p>
-      <p>Run #{report.run.id}</p>
-    </details>
-  </div>
-);
+      ))}
+    </div>
+  );
+};
+const SkillPanel: React.FC = () => {
+  const { data } = useReportData();
+  return (
+    <div className={styles.utilityPanel}>
+      <div className={styles.meta}>DB-GPT Skill</div>
+      <h2>financial-report-analyzer</h2>
+      <p className={styles.sectionDescription}>提取财务指标、执行比率计算、生成图表并形成财务分析报告。</p>
+      <dl className={styles.driverTable}>
+        <div>
+          <dt>提取指标</dt>
+          <dd>extract_financials.py</dd>
+        </div>
+        <div>
+          <dt>比率计算</dt>
+          <dd>calculate_ratios.py</dd>
+        </div>
+        <div>
+          <dt>生成图表</dt>
+          <dd>generate_charts.py</dd>
+        </div>
+      </dl>
+      <details className={styles.developerNote}>
+        <summary>关于此工作区</summary>
+        <p>{capabilityNote(data.mode)}</p>
+        <p>Run #{data.report.run.id}</p>
+      </details>
+    </div>
+  );
+};
 
-const FinancialAnalysisPage: React.FC = () => {
+const FinancialAnalysisWorkspace: React.FC<{ onNewReport?: () => void }> = ({ onNewReport }) => {
+  const { data, sourceDocumentMap } = useReportData();
   const router = useRouter();
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('report');
   const [financialTab, setFinancialTab] = useState('overview');
-  const [activeStepId, setActiveStepId] = useState(agentExecutionSteps[0].id);
-  const [selectedFindingId, setSelectedFindingId] = useState(coreFindingIds[0]);
-  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string>();
+  const [activeStepId, setActiveStepId] = useState<string | undefined>(data.steps[0]?.id);
+  const [selection, setSelection] = useState<EvidenceSelection>({ findingId: data.sections.overview.findingIds[0] });
   const [previewEvidence, setPreviewEvidence] = useState<EvidenceExcerpt | null>(null);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -139,12 +150,12 @@ const FinancialAnalysisPage: React.FC = () => {
     setPreviewEvidence(null);
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: next === 'report' ? reportScroll.current : 0 }));
   };
-  const openEvidence = (findingId: string, evidenceId?: string) => {
-    setSelectedFindingId(findingId);
-    setSelectedEvidenceId(evidenceId);
+  const openEvidence = (next: EvidenceSelection) => {
+    setSelection(next);
     switchWorkspace('evidence');
   };
   const openSource = (evidence: EvidenceExcerpt) => {
+    setSelection({ evidenceId: evidence.id });
     if (workspaceTab === 'report') reportScroll.current = scrollRef.current?.scrollTop || 0;
     setWorkspaceTab('evidence');
     setPreviewEvidence(evidence);
@@ -168,8 +179,13 @@ const FinancialAnalysisPage: React.FC = () => {
           <span>/</span>
           <span>Agent Workspace</span>
         </button>
+        {onNewReport && (
+          <button type='button' className={styles.textLink} onClick={onNewReport}>
+            分析另一份报告
+          </button>
+        )}
         <span className={styles.completed}>
-          <CheckCircleFilled /> Completed
+          {data.report.run.status === 'completed' && <CheckCircleFilled />} {runStatusLabels[data.report.run.status]}
         </span>
       </header>
       <div className={styles.columns} data-agent-collapsed={agentCollapsed}>
@@ -201,7 +217,7 @@ const FinancialAnalysisPage: React.FC = () => {
               <DesktopOutlined />
               <span>DB-GPT Computer</span>
             </div>
-            <Tooltip title={capabilityNote}>
+            <Tooltip title={capabilityNote(data.mode)}>
               <button type='button' aria-label='关于此工作区'>
                 <InfoCircleOutlined />
               </button>
@@ -264,16 +280,14 @@ const FinancialAnalysisPage: React.FC = () => {
                     document={previewDocument}
                     onBack={() => {
                       setPreviewEvidence(null);
-                      setSelectedEvidenceId(previewEvidence.id);
+                      setSelection({ evidenceId: previewEvidence.id });
                     }}
                   />
                 ) : (
                   <EvidencePanel
-                    findingId={selectedFindingId}
-                    evidenceId={selectedEvidenceId}
+                    selection={selection}
                     onFindingChange={id => {
-                      setSelectedFindingId(id);
-                      setSelectedEvidenceId(undefined);
+                      setSelection({ findingId: id });
                       scrollRef.current?.scrollTo({ top: 0 });
                     }}
                     onOpenSource={openSource}
@@ -287,4 +301,9 @@ const FinancialAnalysisPage: React.FC = () => {
     </main>
   );
 };
+const FinancialAnalysisPage: React.FC<{ data: ReportData; onNewReport?: () => void }> = ({ data, onNewReport }) => (
+  <ReportDataProvider key={`${data.report.id}:${data.report.run.id}:${data.revision}`} data={data}>
+    <FinancialAnalysisWorkspace onNewReport={onNewReport} />
+  </ReportDataProvider>
+);
 export default FinancialAnalysisPage;

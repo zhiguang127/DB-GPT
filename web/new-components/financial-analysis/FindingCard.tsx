@@ -1,8 +1,8 @@
 import { ArrowRightOutlined } from '@ant-design/icons';
 import React from 'react';
+import { useReportData } from './ReportDataContext';
 import styles from './financial-analysis.module.css';
-import { calculationTraceMap, evidenceExcerptMap, financialFactMap } from './mock-data';
-import { AnalysisFinding, SupportStatus } from './types';
+import { AnalysisFinding, OpenEvidence, SupportStatus } from './types';
 
 export const supportLabels: Record<SupportStatus, string> = {
   supported: '证据支持',
@@ -11,10 +11,11 @@ export const supportLabels: Record<SupportStatus, string> = {
 };
 interface FindingCardProps {
   finding: AnalysisFinding;
-  onOpenEvidence: (findingId: string, evidenceId?: string) => void;
+  onOpenEvidence: OpenEvidence;
   compact?: boolean;
 }
 const FindingCard: React.FC<FindingCardProps> = ({ finding, onOpenEvidence, compact = false }) => {
+  const { calculationTraceMap, evidenceExcerptMap, financialFactMap } = useReportData();
   const facts = finding.inlineTrace.filter(node => node.kind === 'fact');
   const calculations = finding.inlineTrace.filter(node => node.kind === 'calculation');
   const evidence = finding.inlineTrace.filter(node => node.kind === 'evidence');
@@ -64,13 +65,17 @@ const FindingCard: React.FC<FindingCardProps> = ({ finding, onOpenEvidence, comp
           {evidence.map(node => {
             const excerpt = evidenceExcerptMap[node.refId];
             return excerpt ? (
-              <button type='button' key={node.refId} onClick={() => onOpenEvidence(finding.id, excerpt.id)}>
+              <button
+                type='button'
+                key={node.refId}
+                onClick={() => onOpenEvidence({ findingId: finding.id, evidenceId: excerpt.id })}
+              >
                 {excerpt.id} · PDF {excerpt.page}
               </button>
             ) : null;
           })}
         </div>
-        <button className={styles.textLink} type='button' onClick={() => onOpenEvidence(finding.id)}>
+        <button className={styles.textLink} type='button' onClick={() => onOpenEvidence({ findingId: finding.id })}>
           查看完整证据链 <ArrowRightOutlined />
         </button>
       </div>

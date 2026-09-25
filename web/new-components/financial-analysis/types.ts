@@ -9,9 +9,9 @@ export interface AnalysisRun {
   agentName: string;
   modelName: string;
   skillName: 'financial-report-analyzer';
-  status: 'completed';
+  status: 'pending' | 'running' | 'completed' | 'failed';
   evidenceCoverage: number;
-  completedAt: string;
+  completedAt?: string;
 }
 
 export interface FinancialReport {
@@ -33,6 +33,8 @@ export interface SourceDocument {
   reportType: string;
   fiscalPeriod: string;
   version: string;
+  sizeBytes?: number;
+  fileId?: string;
 }
 
 export interface EvidenceExcerpt {
@@ -53,7 +55,7 @@ export interface FinancialFact {
   metricCode: string;
   metricName: string;
   rawValue: string;
-  normalizedValue: number;
+  normalizedValue: number | string | null;
   displayValue: string;
   unit: string;
   fiscalPeriod: string;
@@ -69,7 +71,7 @@ export interface CalculationTrace {
   formula: string;
   inputFactIds: string[];
   steps: string[];
-  result: number;
+  result: number | string | null;
   displayResult: string;
   unit: string;
 }
@@ -101,6 +103,7 @@ export interface FinancialMetric {
   name: string;
   displayValue: string;
   change?: number;
+  changeDisplay?: string;
   changeLabel?: string;
   changeUnit?: '%' | 'pp' | 'x';
   informationKind: Exclude<InformationKind, 'analysis'>;
@@ -118,7 +121,7 @@ export interface AgentExecutionStep {
   tool?: string;
   script?: string;
   detail: string;
-  status: 'completed';
+  status: 'pending' | 'running' | 'completed' | 'failed';
   capability: 'existing' | 'mock-extension';
 }
 
@@ -135,5 +138,67 @@ export interface MockAnswer {
 }
 
 export interface EvidenceSelection {
-  findingId: string;
+  findingId?: string;
+  metricId?: string;
+  factId?: string;
+  calculationId?: string;
+  evidenceId?: string;
+}
+
+export type OpenEvidence = (selection: EvidenceSelection) => void;
+
+export interface ReportSectionData {
+  title?: string;
+  description?: string;
+  findingIds: string[];
+  factIds?: string[];
+  calculationIds?: string[];
+  evidenceIds?: string[];
+  comparisonLabel?: string;
+}
+
+export interface ReportArtifact {
+  id: string;
+  name: string;
+  kind: 'html' | 'png' | 'json';
+  detail: string;
+  sizeBytes?: number;
+}
+
+/** A complete snapshot. Missing arrays/values must never resolve to demo data. */
+export interface ReportData {
+  schemaVersion: 1;
+  revision: string;
+  mode: 'demo' | 'report';
+  report: FinancialReport;
+  documents: SourceDocument[];
+  evidence: EvidenceExcerpt[];
+  facts: FinancialFact[];
+  calculations: CalculationTrace[];
+  findings: AnalysisFinding[];
+  metrics: FinancialMetric[];
+  trends: {
+    revenue: TrendPoint[];
+    cashFlow: TrendPoint[];
+    profit: TrendPoint[];
+    expenses: Array<{ expense: string; year: string; value: number }>;
+    financialUnit: string;
+    profitUnit: string;
+  };
+  steps: AgentExecutionStep[];
+  sections: Record<'overview' | 'profitability' | 'cashflow' | 'balance', ReportSectionData>;
+  healthMetrics: Array<{ id: string; name: string; displayValue: string | null; selection?: EvidenceSelection }>;
+  statements: {
+    unit: string;
+    periods: Array<{ period: string; label: string }>;
+    rows: Array<{ id: string; name: string; factIds: string[] }>;
+  };
+  artifacts: ReportArtifact[];
+  agent: {
+    userQuery: string;
+    summary: string;
+    groups: Array<{ id: string; title: string; content: string; stepIds: string[] }>;
+  };
+  /** Canned answers belong exclusively to the demo, until the question API exists. */
+  demoQuestions?: Array<MockAnswer & { label: string; keywords: string[]; priority: number }>;
 }

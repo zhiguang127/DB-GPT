@@ -2,48 +2,22 @@ import { FilePdfOutlined } from '@ant-design/icons';
 import { Select } from 'antd';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { supportLabels } from './FindingCard';
+import { useReportData } from './ReportDataContext';
 import styles from './financial-analysis.module.css';
-import {
-  analysisFindingMap,
-  analysisFindings,
-  calculationTraceMap,
-  evidenceExcerptMap,
-  financialFactMap,
-  sourceDocumentMap,
-} from './mock-data';
-import { EvidenceExcerpt } from './types';
+import { resolveEvidence } from './report-data';
+import { EvidenceExcerpt, EvidenceSelection } from './types';
 
 interface EvidencePanelProps {
-  findingId: string;
-  evidenceId?: string;
+  selection: EvidenceSelection;
   onFindingChange: (findingId: string) => void;
   onOpenSource: (evidence: EvidenceExcerpt) => void;
 }
-const EvidencePanel: React.FC<EvidencePanelProps> = ({ findingId, evidenceId, onFindingChange, onOpenSource }) => {
-  const finding = analysisFindingMap[findingId] || analysisFindings[0];
+const EvidencePanel: React.FC<EvidencePanelProps> = ({ selection, onFindingChange, onOpenSource }) => {
+  const { data, evidenceExcerptMap, sourceDocumentMap } = useReportData();
+  const { evidenceId, findingId } = selection;
   const selectedRef = useRef<HTMLDivElement>(null);
-  const resolved = useMemo(() => {
-    const calculations = finding.calculationIds.map(id => calculationTraceMap[id]).filter(Boolean);
-    // Include all calculation inputs and an explicitly selected citation, even when
-    // the KPI is broader than the finding (e.g. revenue and ROE in earnings quality).
-    const factIds = new Set([...finding.factIds, ...calculations.flatMap(item => item.inputFactIds)]);
-    if (evidenceId)
-      Object.values(financialFactMap)
-        .filter(fact => fact.evidenceExcerptIds.includes(evidenceId))
-        .forEach(fact => factIds.add(fact.id));
-    const facts = Array.from(factIds)
-      .map(id => financialFactMap[id])
-      .filter(Boolean);
-    const evidenceIds = new Set([...finding.evidenceExcerptIds, ...facts.flatMap(fact => fact.evidenceExcerptIds)]);
-    if (evidenceId) evidenceIds.add(evidenceId);
-    const evidence = Array.from(evidenceIds)
-      .map(id => evidenceExcerptMap[id])
-      .filter(Boolean);
-    const documents = Array.from(new Set(evidence.map(item => item.sourceDocumentId)))
-      .map(id => sourceDocumentMap[id])
-      .filter(Boolean);
-    return { calculations, facts, evidence, documents };
-  }, [finding, evidenceId]);
+  const resolved = useMemo(() => resolveEvidence(data, selection), [data, selection]);
+  const finding = resolved.finding;
   useEffect(() => {
     if (!evidenceId) return;
     const frame = requestAnimationFrame(() => {
@@ -61,26 +35,29 @@ const EvidencePanel: React.FC<EvidencePanelProps> = ({ findingId, evidenceId, on
       <Select
         id='financial-finding-select'
         className={styles.findingSelect}
-        value={finding.id}
+        value={finding?.id}
+        placeholder='选择研究发现，或从指标直接查看依据'
         onChange={onFindingChange}
-        options={analysisFindings.map(item => ({ value: item.id, label: item.title }))}
+        options={data.findings.map(item => ({ value: item.id, label: item.title }))}
       />
       <section className={styles.evidenceSection}>
         <h2>
           <span>01</span> Agent 分析
         </h2>
-        <h3 className={styles.evidenceFindingTitle}>{finding.title}</h3>
-        <p>{finding.summary}</p>
-        <span className={styles.support} data-status={finding.supportStatus}>
-          ● {supportLabels[finding.supportStatus]}
-        </span>
-        {finding.counterEvidence?.map(item => (
+        <h3 className={styles.evidenceFindingTitle}>{finding?.title || resolved.metric?.name || '指标与来源依据'}</h3>
+        <p>{finding?.summary || '此处展示所选指标或来源的依据。'}</p>
+        {finding && (
+          <span className={styles.support} data-status={finding.supportStatus}>
+            ● {supportLabels[finding.supportStatus]}
+          </span>
+        )}
+        {finding?.counterEvidence?.map(item => (
           <p className={styles.researchNote} key={item}>
             <strong>对冲证据</strong>
             {item}
           </p>
         ))}
-        {finding.unresolvedQuestions?.map(item => (
+        {finding?.unresolvedQuestions?.map(item => (
           <p className={styles.researchNote} key={item}>
             <strong>待核查</strong>
             {item}
@@ -91,6 +68,7 @@ const EvidencePanel: React.FC<EvidencePanelProps> = ({ findingId, evidenceId, on
         <h2>
           <span>02</span> 确定性计算
         </h2>
+        {!resolved.calculations.length && <p className={styles.meta}>暂无计算记录</p>}
         {resolved.calculations.map(calculation => (
           <div className={styles.calculationDetail} key={calculation.id}>
             <h3>{calculation.name}</h3>
@@ -101,6 +79,7 @@ const EvidencePanel: React.FC<EvidencePanelProps> = ({ findingId, evidenceId, on
               ))}
             </div>
             <strong className={styles.calculationResult}>{calculation.displayResult}</strong>
+            {data.mode === 'report' && calculation.steps.map((step, index) => <p key={index}>{step}</p>)}
           </div>
         ))}
       </section>
@@ -120,11 +99,14 @@ const EvidencePanel: React.FC<EvidencePanelProps> = ({ findingId, evidenceId, on
               <div>
                 <strong>{fact.displayValue}</strong>
                 <div className={styles.citations}>
-                  {fact.evidenceExcerptIds.map(id => (
-                    <button type='button' key={id} onClick={() => onOpenSource(evidenceExcerptMap[id])}>
-                      {id} · PDF {evidenceExcerptMap[id].page}
-                    </button>
-                  ))}
+                  {fact.evidenceExcerptIds.map(
+                    id =>
+                      evidenceExcerptMap[id] && (
+                        <button type='button' key={id} onClick={() => onOpenSource(evidenceExcerptMap[id]!)}>
+                          {id} · PDF {evidenceExcerptMap[id]!.page}
+                        </button>
+                      ),
+                  )}
                 </div>
               </div>
             </div>
@@ -135,6 +117,7 @@ const EvidencePanel: React.FC<EvidencePanelProps> = ({ findingId, evidenceId, on
         <h2>
           <span>04</span> 原始证据
         </h2>
+        {!resolved.evidence.length && <p className={styles.meta}>暂无可用来源</p>}
         {resolved.evidence.map(evidence => (
           <div
             key={evidence.id}
@@ -152,7 +135,7 @@ const EvidencePanel: React.FC<EvidencePanelProps> = ({ findingId, evidenceId, on
               </button>
             </div>
             <div className={styles.meta}>
-              {sourceDocumentMap[evidence.sourceDocumentId].fileName} · {evidence.section}
+              {sourceDocumentMap[evidence.sourceDocumentId]?.fileName || '来源文件未提供'} · {evidence.section}
             </div>
             <div className={styles.meta}>
               {[evidence.table, evidence.row, evidence.column].filter(Boolean).join(' / ')}

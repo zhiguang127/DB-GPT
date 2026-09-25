@@ -7,6 +7,7 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import zh from '../../web/locales/zh';
 import FinancialAnalysisPage from '../../web/new-components/financial-analysis/FinancialAnalysisPage';
+import { mockReportData } from '../../web/new-components/financial-analysis/mock-report';
 import { ChatContext } from './adapters/chat-context';
 import logoLight from '../../web/public/logo_zh_latest.png';
 import logoDark from '../../web/public/logo_s_latest.png';
@@ -40,7 +41,7 @@ function App() {
         <button type='button' className='offline-settings' aria-disabled='true'><SettingOutlined />{expanded && '设置'}</button>
         <button type='button' className='offline-theme' aria-label={mode === 'dark' ? '切换浅色主题' : '切换深色主题'} onClick={() => setMode(value => value === 'dark' ? 'light' : 'dark')}>{mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}{expanded && (mode === 'dark' ? '浅色模式' : '深色模式')}</button>
       </aside>
-      <div className='offline-main'><FinancialAnalysisPage /></div>
+      <div className='offline-main'><FinancialAnalysisPage data={mockReportData} /></div>
     </div>
   </ConfigProvider></ChatContext.Provider>;
 }

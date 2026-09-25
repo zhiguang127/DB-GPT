@@ -26,7 +26,7 @@ const SourcePreviewPanel: React.FC<SourcePreviewPanelProps> = ({ evidence, docum
       <p className={styles.sectionDescription}>
         {document.fiscalPeriod} · PDF Page {evidence.page}
       </p>
-      <div className={styles.sourceSection}>{evidence.section || '财务报表附注'}</div>
+      <div className={styles.sourceSection}>{evidence.section || '来源片段'}</div>
       <p className={styles.meta}>{[evidence.table, evidence.row, evidence.column].filter(Boolean).join(' / ')}</p>
       <blockquote className={styles.sourceHighlight}>
         <span className={styles.meta}>{evidence.id}</span>

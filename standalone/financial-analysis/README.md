@@ -29,3 +29,19 @@ The HTML includes a restrictive CSP (`connect-src 'none'`) and passive in-memory
 diagnostics at `window.__DEMO_DIAGNOSTICS__` for runtime verification. It does not
 silently intercept or hide failed network requests. Build intermediates and the
 source-integrity/build report live in ignored `.work/`; they are not deliverables.
+
+The entry explicitly passes `mockReportData` into the shared page. Application
+components receive a `ReportData` snapshot and do not import `mock-data.ts`.
+
+Run the data/rendering regression without a browser:
+
+```powershell
+node standalone/financial-analysis/test-data.cjs
+```
+
+To verify bundling without replacing the delivered demo, pass an output path
+whose parent directory already exists:
+
+```powershell
+node standalone/financial-analysis/build.cjs .work/financial-analysis/demo-round2.html
+```

@@ -1,41 +1,45 @@
 import { ArrowRightOutlined, CloseOutlined, InfoCircleOutlined, SendOutlined } from '@ant-design/icons';
 import { Button, Input, Tooltip } from 'antd';
 import React, { useState } from 'react';
+import { useReportData } from './ReportDataContext';
 import styles from './financial-analysis.module.css';
-import { mockAnswers } from './mock-data';
-import { MockAnswer } from './types';
+import { MockAnswer, OpenEvidence } from './types';
 interface AskDbGPTDockProps {
-  onOpenEvidence: (findingId: string) => void;
+  onOpenEvidence: OpenEvidence;
 }
 const AskDbGPTDock: React.FC<AskDbGPTDockProps> = ({ onOpenEvidence }) => {
+  const { data } = useReportData();
+  const questions = data.mode === 'demo' ? data.demoQuestions || [] : [];
   const [query, setQuery] = useState('');
   const [answer, setAnswer] = useState<MockAnswer | null>(null);
   const submit = (question?: string) => {
     const value = (question || query).trim();
     if (!value) return;
     const matched =
-      mockAnswers.find(item => item.question === value) ||
-      (value.includes('现金') ? mockAnswers[1] : undefined) ||
-      (value.includes('非经常') || value.includes('扣非') ? mockAnswers[2] : undefined) ||
-      (value.includes('偿债') || value.includes('负债') ? mockAnswers[3] : undefined) ||
-      (value.includes('费用') || value.includes('利润') ? mockAnswers[0] : undefined);
+      questions.find(item => item.question === value) ||
+      [...questions]
+        .sort((a, b) => a.priority - b.priority)
+        .find(item => item.keywords.some(keyword => value.includes(keyword)));
     setQuery(value);
     setAnswer(
       matched
         ? { ...matched, question: value }
         : {
             question: value,
-            answer: '当前示例暂未覆盖这个问题。可以从盈利质量、现金转化或费用压力的研究发现继续查看依据。',
-            findingId: 'finding-earnings-quality',
+            answer:
+              data.mode === 'demo'
+                ? '当前示例暂未覆盖这个问题。可以从研究发现继续查看依据。'
+                : '当前报告尚未接入追问服务，请先通过指标和来源核对数据。',
+            findingId: '',
           },
     );
   };
   return (
     <section className={styles.composer} aria-label='Ask DB-GPT'>
       <div className={styles.suggestions}>
-        {['利润为何下降？', '现金转化如何？', '非经常性损益'].map((label, index) => (
-          <button type='button' key={label} onClick={() => submit(mockAnswers[index].question)}>
-            {label}
+        {questions.slice(0, 3).map(item => (
+          <button type='button' key={item.question} onClick={() => submit(item.question)}>
+            {item.label}
           </button>
         ))}
       </div>
@@ -64,7 +68,7 @@ const AskDbGPTDock: React.FC<AskDbGPTDockProps> = ({ onOpenEvidence }) => {
           <div className={styles.answerHeading}>
             <span>
               DB-GPT{' '}
-              <Tooltip title='本地示例回答，未调用模型。'>
+              <Tooltip title={data.mode === 'demo' ? '本地示例回答，未调用模型。' : '当前报告尚未接入追问服务。'}>
                 <InfoCircleOutlined />
               </Tooltip>
             </span>
@@ -73,9 +77,15 @@ const AskDbGPTDock: React.FC<AskDbGPTDockProps> = ({ onOpenEvidence }) => {
             </button>
           </div>
           <p>{answer.answer}</p>
-          <button type='button' className={styles.textLink} onClick={() => onOpenEvidence(answer.findingId)}>
-            查看回答依据 <ArrowRightOutlined />
-          </button>
+          {answer.findingId && (
+            <button
+              type='button'
+              className={styles.textLink}
+              onClick={() => onOpenEvidence({ findingId: answer.findingId })}
+            >
+              查看回答依据 <ArrowRightOutlined />
+            </button>
+          )}
         </div>
       )}
     </section>
