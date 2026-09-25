@@ -75,6 +75,7 @@ class SessionFileServe(BaseServe):
         self._registry = registry
         self._work_root = Path(work_root) if work_root is not None else None
         self._db_manager: Optional[DatabaseManager] = None
+        self._financial_analysis = None
 
     @property
     def registry(self) -> Optional[SessionFileRegistry]:
@@ -101,10 +102,23 @@ class SessionFileServe(BaseServe):
                 work_root=self._resolve_work_root(system_app),
             )
         init_endpoints(system_app, self._registry, self._serve_config)
+        from dbgpt_serve.financial_analysis.api import make_router
+        from dbgpt_serve.financial_analysis.service import FinancialAnalysisService
+
+        self._financial_analysis = FinancialAnalysisService(self._registry)
+        system_app.app.include_router(
+            make_router(self._financial_analysis),
+            prefix="/api/v1/financial-analysis",
+            tags=["FinancialAnalysis"],
+        )
         self._app_has_initiated = True
 
     def on_init(self):
         """Import the Entity class to register SQLAlchemy metadata."""
+        from dbgpt_serve.financial_analysis.models import (
+            FinancialRunEntity,  # noqa: F401
+        )
+
         from .models.models import SessionFileEntity  # noqa: F401
 
     def before_start(self):
@@ -113,6 +127,10 @@ class SessionFileServe(BaseServe):
 
     async def async_before_stop(self):
         """Close the registry and unbind the endpoints module."""
+        if self._financial_analysis is not None:
+            import asyncio
+
+            await asyncio.to_thread(self._financial_analysis.close)
         if self._registry is not None:
             try:
                 self._registry.close()
