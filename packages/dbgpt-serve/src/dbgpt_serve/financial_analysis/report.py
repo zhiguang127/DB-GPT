@@ -3,7 +3,7 @@
 from copy import deepcopy
 from decimal import Decimal
 
-from .calculations import calculate
+from .calculations import EXPENSE_RATIOS, calculate
 
 
 def build_report(extracted, run, file_record):
@@ -17,7 +17,10 @@ def build_report(extracted, run, file_record):
             f"{Decimal(value):,.2f} 元" if value is not None else "未识别（待核对）"
         )
     calculations = calculate(facts, year)
-    calc = {c["code"]: c for c in calculations}
+    calc = {c["code"]: c for c in calculations if c["fiscalPeriod"] == year}
+    prior = str(int(year) - 1)
+    expense_rates = dict(EXPENSE_RATIOS.values())
+    rate_codes = {"gross_margin": "毛利率", **expense_rates}
     current = {f["metricCode"]: f for f in facts if f["fiscalPeriod"] == year}
     company = extracted.get("company_name") or "未识别公司名称"
     evidence = deepcopy(extracted["evidence"])
@@ -155,7 +158,16 @@ def build_report(extracted, run, file_record):
                 {"net_profit", "operating_cash_flow"}, Decimal(100000000)
             ),
             "profit": trend({"net_profit", "non_recurring_net_profit"}, Decimal(10000)),
-            "expenses": [],
+            "expenses": [
+                {
+                    "expense": expense_rates[c["code"]],
+                    "year": c["fiscalPeriod"],
+                    "value": float(Decimal(c["result"])),
+                    "calculationId": c["id"],
+                }
+                for c in calculations
+                if c["code"] in expense_rates and c["result"] is not None
+            ],
             "financialUnit": "亿元",
             "profitUnit": "万元",
         },
@@ -168,6 +180,17 @@ def build_report(extracted, run, file_record):
                 "calculationIds": [
                     calc[k]["id"] for k in ["nonrecurring_impact", "nonrecurring_share"]
                 ],
+                "rateComparisons": [
+                    {
+                        "id": code,
+                        "name": label,
+                        "currentCalculationId": f"calc-{code}-{year}",
+                        "previousCalculationId": f"calc-{code}-{prior}",
+                        "changeCalculationId": f"calc-{code}_change-{year}",
+                    }
+                    for code, label in rate_codes.items()
+                ],
+                "comparisonLabel": f"{year} 年较 {prior} 年",
             },
             "cashflow": {
                 "findingIds": [],
@@ -177,7 +200,15 @@ def build_report(extracted, run, file_record):
                 "description": year + " 年末 · 合并报表",
                 "findingIds": [],
                 "factIds": [
-                    current[k]["id"] for k in ["total_assets", "total_liabilities"]
+                    current[k]["id"]
+                    for k in [
+                        "total_assets",
+                        "total_liabilities",
+                        "current_assets",
+                        "current_liabilities",
+                        "inventory",
+                    ]
+                    if k in current
                 ],
             },
         },
@@ -188,7 +219,7 @@ def build_report(extracted, run, file_record):
                 "displayValue": calc[code]["displayResult"],
                 "selection": {"calculationId": calc[code]["id"]},
             }
-            for code in ["debt_ratio", "cash_profit_ratio"]
+            for code in ["debt_ratio", "cash_profit_ratio", "current_ratio"]
         ],
         "statements": {
             "unit": "元",

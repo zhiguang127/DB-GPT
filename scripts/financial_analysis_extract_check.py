@@ -1,4 +1,4 @@
-"""Validate the two user-supplied PDFs against the reviewed six-metric baseline."""
+"""Validate user PDFs against visually reviewed amounts and physical pages."""
 
 import argparse
 import hashlib
@@ -57,7 +57,7 @@ def main():
                     fact,
                 )
                 sources = [evidence[e] for e in fact["evidenceExcerptIds"]]
-                expected_page = (
+                expected_page = sample.get("metricPages", {}).get(code) or (
                     sample["liabilitiesPage"]
                     if code == "total_liabilities"
                     else sample["summaryPage"]

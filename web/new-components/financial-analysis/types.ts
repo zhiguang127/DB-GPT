@@ -165,6 +165,13 @@ export interface ReportSectionData {
   calculationIds?: string[];
   evidenceIds?: string[];
   comparisonLabel?: string;
+  rateComparisons?: Array<{
+    id: string;
+    name: string;
+    currentCalculationId: string;
+    previousCalculationId: string;
+    changeCalculationId: string;
+  }>;
 }
 
 export interface ReportArtifact {
@@ -191,7 +198,7 @@ export interface ReportData {
     revenue: TrendPoint[];
     cashFlow: TrendPoint[];
     profit: TrendPoint[];
-    expenses: Array<{ expense: string; year: string; value: number }>;
+    expenses: Array<{ expense: string; year: string; value: number; calculationId?: string }>;
     financialUnit: string;
     profitUnit: string;
   };

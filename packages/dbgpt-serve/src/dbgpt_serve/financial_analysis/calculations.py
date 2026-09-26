@@ -8,12 +8,29 @@ REASONS = {
     "zero_denominator": "分母为零",
 }
 
+BALANCE_METRICS = {
+    "total_assets",
+    "total_liabilities",
+    "equity",
+    "current_assets",
+    "current_liabilities",
+    "inventory",
+}
+
+EXPENSE_RATIOS = {
+    "selling_expenses": ("selling_expense_ratio", "销售费用率"),
+    "administrative_expenses": ("administrative_expense_ratio", "管理费用率"),
+    "research_expenses": ("research_expense_ratio", "研发费用率"),
+    "financial_expenses": ("financial_expense_ratio", "财务费用率"),
+}
+
 
 def calculate(facts, year):
     index = {(f["metricCode"], f["fiscalPeriod"]): f for f in facts}
     traces = []
 
-    def add(code, name, terms, formula, operation, unit, *, growth=False):
+    def add(code, name, terms, formula, operation, unit, *, growth=False, period=None):
+        result_period = period or year
         inputs = [index.get(term) for term in terms]
         reason = None
         values = []
@@ -30,11 +47,7 @@ def calculate(facts, year):
                 if metric in {"net_profit", "non_recurring_net_profit", "equity"}
                 else "consolidated"
             )
-            expected_type = (
-                "instant"
-                if metric in {"total_assets", "total_liabilities", "equity"}
-                else "flow"
-            )
+            expected_type = "instant" if metric in BALANCE_METRICS else "flow"
             if (
                 fact.get("currency"),
                 fact.get("unit"),
@@ -74,7 +87,7 @@ def calculate(facts, year):
             steps.append(f"结果 = {format(result, 'f')} {unit}")
         traces.append(
             {
-                "id": f"calc-{code}-{year}",
+                "id": f"calc-{code}-{result_period}",
                 "code": code,
                 "name": name,
                 "kind": "deterministic",
@@ -86,7 +99,7 @@ def calculate(facts, year):
                 if result is not None
                 else "不可计算",
                 "unit": unit,
-                "fiscalPeriod": year,
+                "fiscalPeriod": result_period,
                 "status": "unavailable" if reason else "calculated",
                 "reason": reason,
             }
@@ -139,5 +152,54 @@ def calculate(facts, year):
         "总负债 ÷ 总资产 × 100%",
         lambda liabilities, assets: liabilities / assets * 100,
         "%",
+    )
+    # Rates for both years retain their own inputs; percentage-point changes
+    # compare exact ratios, not rounded display values or model arithmetic.
+    ratios = {"cost_of_sales": ("gross_margin", "毛利率"), **EXPENSE_RATIOS}
+    for metric, (code, label) in ratios.items():
+        gross = metric == "cost_of_sales"
+        for period in [year, prior]:
+            add(
+                code,
+                f"{period} 年{label}",
+                [(metric, period), ("revenue", period)],
+                "（营业收入－营业成本）÷ 营业收入 × 100%"
+                if gross
+                else f"{label.removesuffix('率')} ÷ 营业收入 × 100%",
+                (lambda cost, revenue: (revenue - cost) / revenue * 100)
+                if gross
+                else (lambda expense, revenue: expense / revenue * 100),
+                "%",
+                period=period,
+            )
+        add(
+            code + "_change",
+            f"{label}变动（{year} 较 {prior}）",
+            [(metric, year), ("revenue", year), (metric, prior), ("revenue", prior)],
+            "（上期营业成本 ÷ 上期营业收入－本期营业成本 ÷ 本期营业收入）× 100"
+            if gross
+            else "（本期费用 ÷ 本期营业收入－上期费用 ÷ 上期营业收入）× 100",
+            (
+                lambda cost, revenue, old_cost, old_revenue: (
+                    old_cost / old_revenue - cost / revenue
+                )
+                * 100
+            )
+            if gross
+            else (
+                lambda expense, revenue, old_expense, old_revenue: (
+                    expense / revenue - old_expense / old_revenue
+                )
+                * 100
+            ),
+            "百分点",
+        )
+    add(
+        "current_ratio",
+        "流动比率",
+        [("current_assets", year), ("current_liabilities", year)],
+        "流动资产 ÷ 流动负债",
+        lambda assets, liabilities: assets / liabilities,
+        "×",
     )
     return traces

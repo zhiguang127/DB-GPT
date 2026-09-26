@@ -102,7 +102,7 @@ def main():
                             if f["fiscalPeriod"] == year and f["metricCode"] == code
                         )
                         assert Decimal(fact["normalizedValue"]) == Decimal(expected)
-                assert len(report["calculations"]) == 8
+                assert len(report["calculations"]) == 24
                 assert all(
                     c["result"] is not None and isinstance(c["result"], str)
                     for c in report["calculations"]
@@ -154,7 +154,7 @@ def main():
     (args.output_dir / "runs.json").write_text(
         json.dumps(reviewed, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print("PASS two PDFs, eight calculations each, repeated reads and scope isolation")
+    print("PASS two PDFs, 24 calculations each, repeated reads and scope isolation")
 
 
 if __name__ == "__main__":

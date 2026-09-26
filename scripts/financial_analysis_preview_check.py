@@ -20,6 +20,11 @@ def main():
     )
     parser.add_argument("--pdf-dir", type=Path, default=ROOT / "testpdf")
     parser.add_argument(
+        "--extended",
+        action="store_true",
+        help="Also preview cost, expense, current-balance and inventory sources",
+    )
+    parser.add_argument(
         "--output-dir", type=Path, default=ROOT / ".work/financial-analysis/round5"
     )
     args = parser.parse_args()
@@ -45,7 +50,19 @@ def main():
             assert downloaded.content == files[doc["sha256"]].read_bytes()
             evidence = {e["id"]: e for e in report["evidence"]}
             pages = []
-            for metric in ["revenue", "total_liabilities", "operating_cash_flow"]:
+            metrics = ["revenue", "total_liabilities", "operating_cash_flow"]
+            if args.extended:
+                metrics += [
+                    "cost_of_sales",
+                    "selling_expenses",
+                    "administrative_expenses",
+                    "research_expenses",
+                    "financial_expenses",
+                    "current_assets",
+                    "current_liabilities",
+                    "inventory",
+                ]
+            for metric in metrics:
                 fact = next(
                     f
                     for f in report["facts"]
@@ -54,6 +71,8 @@ def main():
                 )
                 selected = fact["evidenceExcerptIds"][0 if metric == "revenue" else -1]
                 page = evidence[selected]["page"]
+                if page in pages:
+                    continue
                 response = client.get(
                     f"{base}/pages/{page}", headers=headers, params=params
                 )
@@ -66,7 +85,7 @@ def main():
                     response.content
                 )
                 pages.append(page)
-            assert len(set(pages)) == 3
+            assert len(set(pages)) >= 3
             assert (
                 client.get(
                     f"{base}/pages/{pages[0]}",

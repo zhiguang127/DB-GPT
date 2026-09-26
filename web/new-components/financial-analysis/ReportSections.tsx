@@ -8,7 +8,7 @@ import FindingCard from './FindingCard';
 import { useReportData } from './ReportDataContext';
 import styles from './financial-analysis.module.css';
 import { isDefined, periodRange } from './report-data';
-import type { FinancialFact, OpenEvidence } from './types';
+import type { FinancialFact, OpenEvidence, ReportSectionData } from './types';
 
 const FinancialChart = dynamic(() => import('./FinancialChart'), {
   ssr: false,
@@ -167,6 +167,35 @@ export const ProfitabilityTab: React.FC<ReportSectionProps> = ({ onOpenEvidence 
   const { data, analysisFindingMap, calculationTraceMap, evidenceExcerptMap } = useReportData();
   const section = data.sections.profitability;
   const findings = section.findingIds.map(id => analysisFindingMap[id]).filter(isDefined);
+  type RateRow = NonNullable<ReportSectionData['rateComparisons']>[number];
+  const rateColumns: ColumnsType<RateRow> = [
+    { title: '指标', dataIndex: 'name', key: 'name' },
+    ...(
+      [
+        ['本期', 'currentCalculationId'],
+        ['上期', 'previousCalculationId'],
+        ['变动（百分点）', 'changeCalculationId'],
+      ] as const
+    ).map(([title, key]) => ({
+      title,
+      key,
+      align: 'right' as const,
+      render: (_: unknown, row: RateRow) => {
+        const calculation = calculationTraceMap[row[key]];
+        return calculation ? (
+          <button
+            type='button'
+            title={calculation.name}
+            onClick={() => onOpenEvidence({ calculationId: calculation.id })}
+          >
+            {calculation.displayResult} <LinkOutlined />
+          </button>
+        ) : (
+          '不可计算'
+        );
+      },
+    })),
+  ];
   return (
     <div className={styles.reportFlow}>
       <section>
@@ -216,6 +245,20 @@ export const ProfitabilityTab: React.FC<ReportSectionProps> = ({ onOpenEvidence 
         )}
       </section>
       <section className={styles.reportSection}>
+        {!!section.rateComparisons?.length && (
+          <>
+            <h2>毛利率与费用率</h2>
+            <p className={styles.sectionDescription}>{section.comparisonLabel} · 点击数值查看公式与来源</p>
+            <Table
+              rowKey='id'
+              size='middle'
+              columns={rateColumns}
+              dataSource={section.rateComparisons}
+              pagination={false}
+              scroll={{ x: 640 }}
+            />
+          </>
+        )}
         <Figure
           title='期间费用率压力'
           caption={`占营业收入比例（%） · ${[...new Set(data.trends.expenses.map(item => item.year))].sort().join(' vs ') || '期间未提供'}`}

@@ -37,6 +37,13 @@ METRICS = {
         ["归属于上市公司股东的净资产", "归属于母公司所有者权益合计"],
     ),
     "cost_of_sales": ("营业成本", "flow", ["营业成本"]),
+    "selling_expenses": ("销售费用", "flow", ["销售费用"]),
+    "administrative_expenses": ("管理费用", "flow", ["管理费用"]),
+    "research_expenses": ("研发费用", "flow", ["研发费用"]),
+    "financial_expenses": ("财务费用", "flow", ["财务费用"]),
+    "current_assets": ("流动资产", "instant", ["流动资产合计"]),
+    "current_liabilities": ("流动负债", "instant", ["流动负债合计"]),
+    "inventory": ("存货", "instant", ["存货"]),
 }
 STATEMENT = re.compile(
     r"^(?:\d{1,2}[、.．])?(合并|母公司)(资产负债表|利润表|现金流量表|所有者权益变动表)$"
@@ -259,8 +266,23 @@ def table_candidates(pages, document_id):
                 if not code or not header or header["width"] != len(cells):
                     continue
                 allowed = {
-                    "资产负债表": {"total_assets", "total_liabilities", "equity"},
-                    "利润表": {"revenue", "net_profit", "cost_of_sales"},
+                    "资产负债表": {
+                        "total_assets",
+                        "total_liabilities",
+                        "equity",
+                        "current_assets",
+                        "current_liabilities",
+                        "inventory",
+                    },
+                    "利润表": {
+                        "revenue",
+                        "net_profit",
+                        "cost_of_sales",
+                        "selling_expenses",
+                        "administrative_expenses",
+                        "research_expenses",
+                        "financial_expenses",
+                    },
                     "现金流量表": {"operating_cash_flow"},
                     "summary": set(METRICS),
                 }

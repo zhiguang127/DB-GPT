@@ -65,7 +65,6 @@ class FinancialDocumentTest(unittest.TestCase):
 
     def test_exact_metric_names_do_not_match_subtotals(self):
         for text in [
-            "流动负债合计",
             "非流动负债合计",
             "负债和所有者权益总计",
             "货币资金",
@@ -75,6 +74,7 @@ class FinancialDocumentTest(unittest.TestCase):
         ]:
             self.assertIsNone(row_metric(text), text)
         self.assertEqual(row_metric("其中：营业收入"), "revenue")
+        self.assertEqual(row_metric("流动负债合计"), "current_liabilities")
         self.assertEqual(row_metric("1.归属于母公司所有者的净利润"), "net_profit")
 
     def test_periods_require_complete_annual_dates(self):
@@ -88,6 +88,79 @@ class FinancialDocumentTest(unittest.TestCase):
             self.assertEqual(period_header(header), "2024")
         for header in ["2024年01月01日", "2024年6月30日", "本年同比", "2024/2023"]:
             self.assertIsNone(period_header(header))
+
+    def test_expenses_and_current_balances_keep_statement_scope(self):
+        result = build_result(
+            [
+                page(
+                    1,
+                    table(
+                        [
+                            ["项目", "2024年12月31日", "2023年12月31日"],
+                            ["流动资产合计", "200", "180"],
+                            ["流动负债合计", "50", "60"],
+                            ["存货", "30", "—"],
+                            ["财务费用", "999", "999"],
+                        ]
+                    ),
+                ),
+                page(
+                    2,
+                    table(
+                        [
+                            ["项目", "2024年度", "2023年度"],
+                            ["销售费用", "10", "9"],
+                            ["管理费用", "12", "11"],
+                            ["研发费用", "—", "0"],
+                            ["财务费用", "-3", "（2）"],
+                            ["流动资产合计", "999", "999"],
+                        ],
+                        page=2,
+                        statement="利润表",
+                        heading=2,
+                    ),
+                ),
+                page(
+                    3,
+                    table(
+                        [
+                            ["项目", "2024年度", "2023年度"],
+                            ["销售费用", "999", "999"],
+                        ],
+                        page=3,
+                        statement="利润表",
+                        scope="母公司",
+                        heading=3,
+                    ),
+                ),
+            ],
+            "doc",
+            "fixture.pdf",
+        )
+        for code, value in {
+            "current_assets": "200",
+            "current_liabilities": "50",
+            "inventory": "30",
+            "selling_expenses": "10",
+            "administrative_expenses": "12",
+            "financial_expenses": "-3",
+        }.items():
+            item = fact(result, code)
+            self.assertEqual(item["normalizedValue"], value)
+            self.assertEqual(
+                item["periodType"],
+                "instant"
+                if code in {"current_assets", "current_liabilities", "inventory"}
+                else "flow",
+            )
+            self.assertEqual(item["statementScope"], "合并")
+        self.assertIsNone(fact(result, "research_expenses")["normalizedValue"])
+        self.assertEqual(
+            fact(result, "research_expenses", "2023")["normalizedValue"], "0"
+        )
+        self.assertEqual(
+            fact(result, "financial_expenses", "2023")["normalizedValue"], "-2"
+        )
 
     def test_split_rows_keep_periods_and_growth_column(self):
         rows = [

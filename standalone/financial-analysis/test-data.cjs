@@ -130,6 +130,29 @@ for (const filename of process.argv.slice(2)) {
   }
   const statements = render(sections.StatementsTab, data);
   for (const fact of data.facts) assert.ok(statements.includes(fact.displayValue));
+  if (data.sections.profitability.rateComparisons?.length) {
+    captures.buttons.length = 0;
+    const profitability = render(sections.ProfitabilityTab, data, { onOpenEvidence: value => { selected = value; } });
+    assert.ok(profitability.includes('毛利率与费用率'));
+    assert.ok(profitability.includes('变动（百分点）'));
+    for (const row of data.sections.profitability.rateComparisons) {
+      for (const key of ['currentCalculationId', 'previousCalculationId', 'changeCalculationId']) {
+        const calculation = data.calculations.find(c => c.id === row[key]);
+        assert.ok(profitability.includes(calculation.displayResult));
+        captures.buttons.find(button => button.title === calculation.name).onClick();
+        assert.equal(selected.calculationId, calculation.id);
+        const resolved = resolveEvidence(data, selected);
+        assert.deepEqual(new Set(resolved.facts.map(f => f.id)), new Set(calculation.inputFactIds));
+        assert.ok(resolved.evidence.length > 0);
+      }
+    }
+    for (const point of data.trends.expenses) {
+      assert.ok(captures.charts.some(chart => chart.data.includes(point)));
+      const calculation = data.calculations.find(c => c.id === point.calculationId);
+      assert.equal(point.value, Number(calculation.result));
+      assert.equal(point.year, calculation.fiscalPeriod);
+    }
+  }
   for (const calculation of data.calculations) {
     const details = render(Evidence, data, { selection: { calculationId: calculation.id }, onFindingChange: noop, onOpenSource: noop });
     assert.ok(details.includes(calculation.displayResult));
