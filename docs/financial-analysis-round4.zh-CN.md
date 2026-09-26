@@ -4,6 +4,8 @@
 
 ## 使用入口
 
+第 5 轮补充：发现旧上传的文件索引未持久化，重启后原 PDF 无法读取，已修复启动时存储绑定。下方旧报告仍可查看已保存结果；需预览和下载原 PDF，请使用[第 5 轮说明中的新报告链接](financial-analysis-round5.zh-CN.md)。
+
 - [上传并分析年度报告](http://localhost:3000/financial-analysis)
 - [保留的原有演示](http://localhost:3000/financial-analysis?demo=1)
 - [安靠智电真实报告](http://localhost:3000/financial-analysis?run_id=d16791d5-a006-4d31-9c89-a8c13666f530&session_id=financial-run-check-9596fd1531f145e193ee5f325ce9e2c2)

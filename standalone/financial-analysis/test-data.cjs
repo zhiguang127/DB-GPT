@@ -47,6 +47,19 @@ const sections = require(path.join(folder, 'ReportSections.tsx'));
 const Page = require(path.join(folder, 'FinancialAnalysisPage.tsx')).default;
 const Evidence = require(path.join(folder, 'EvidencePanel.tsx')).default;
 const Execution = require(path.join(folder, 'ExecutionProcessPanel.tsx')).default;
+const Source = require(path.join(folder, 'SourcePreviewPanel.tsx')).default;
+const { evidencePages } = require(path.join(folder, 'PdfPagePreview.tsx'));
+assert.deepEqual(evidencePages({ page: 164, headerPage: 161, unitPage: 160 }), [164, 161, 160]);
+assert.deepEqual(evidencePages({ page: 8, headerPage: 8, unitPage: 8 }), [8]);
+const sourceProps = {
+  document: { id: 'doc-source', fileName: 'original.pdf', fiscalPeriod: '2024', pageCount: 200, version: '原件' },
+  evidence: { id: 'E-test', page: 164, snippet: '负债合计 80', headerPage: 161, headerSnippet: '2024年末', unitPage: 160, unitText: '单位：元' },
+  onBack: () => {},
+};
+const sourceDemo = renderToStaticMarkup(React.createElement(Source, sourceProps));
+assert.ok(!sourceDemo.includes('下载原 PDF'));
+const realSource = renderToStaticMarkup(React.createElement(Source, { ...sourceProps, sourceAccess: { loadPage: () => { throw new Error('SSR must not fetch'); }, download: () => {} } }));
+for (const text of ['PDF 物理页码', '指标所在页', '表头所在页', '单位所在页', '164', '161', '160', '负债合计 80', '下载原 PDF']) assert.ok(realSource.includes(text));
 const Agent = require(path.join(folder, 'AgentRunPanel.tsx')).default;
 const noop = () => {};
 const render = (Component, data, props = {}) => renderToStaticMarkup(React.createElement(

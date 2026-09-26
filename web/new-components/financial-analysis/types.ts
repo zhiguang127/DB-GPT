@@ -35,6 +35,7 @@ export interface SourceDocument {
   version: string;
   sizeBytes?: number;
   fileId?: string;
+  pageCount?: number;
 }
 
 export interface EvidenceExcerpt {
@@ -48,6 +49,15 @@ export interface EvidenceExcerpt {
   snippet: string;
   extractedValue?: string;
   qualityStatus: QualityStatus;
+  headerPage?: number;
+  headerSnippet?: string;
+  unitPage?: number;
+  unitText?: string;
+}
+
+export interface SourcePreviewAccess {
+  loadPage: (documentId: string, page: number, signal: AbortSignal) => Promise<Blob>;
+  download: (document: SourceDocument) => Promise<void>;
 }
 
 export interface FinancialFact {

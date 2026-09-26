@@ -1,12 +1,12 @@
 import { uploadFiles } from '@/modules/session-files/api';
 import { Alert, Button, Card, Space, Spin, Typography } from 'antd';
 import { useRouter } from 'next/router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import FinancialAnalysisPage from './FinancialAnalysisPage';
 import type { FinancialRunStatus } from './api';
-import { createRun, getReport, getRun, requestError } from './api';
+import { createRun, downloadSource, getReport, getRun, getSourcePage, requestError } from './api';
 import { mockReportData } from './mock-report';
-import type { ReportData } from './types';
+import type { ReportData, SourcePreviewAccess } from './types';
 
 const stageLabels: Record<string, string> = {
   queued: '等待分析',
@@ -30,6 +30,13 @@ const FinancialAnalysisRoute: React.FC = () => {
   const [data, setData] = useState<ReportData | null>(null);
   const [loadedScope, setLoadedScope] = useState('');
   const [retry, setRetry] = useState(0);
+  const sourceAccess = useMemo<SourcePreviewAccess>(
+    () => ({
+      loadPage: (documentId, page, signal) => getSourcePage(sessionId, runId, documentId, page, signal),
+      download: document => downloadSource(sessionId, runId, document),
+    }),
+    [sessionId, runId],
+  );
 
   useEffect(() => {
     setData(null);
@@ -100,7 +107,7 @@ const FinancialAnalysisRoute: React.FC = () => {
   };
   if (demo) return <FinancialAnalysisPage data={mockReportData} />;
   if (data && loadedScope === `${sessionId}:${runId}` && data.report.run.id === runId)
-    return <FinancialAnalysisPage data={data} onNewReport={startNew} />;
+    return <FinancialAnalysisPage data={data} onNewReport={startNew} sourceAccess={sourceAccess} />;
   const activeRun = run?.id === runId && run.session_id === sessionId ? run : null;
   const invalidLink = !!runId !== !!sessionId;
   return (

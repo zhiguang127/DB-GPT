@@ -1,6 +1,6 @@
 import type { ApiResponse } from '@/client/api';
 import { GET, POST } from '@/client/api';
-import type { ReportData } from './types';
+import type { ReportData, SourceDocument } from './types';
 
 export interface FinancialRunStatus {
   id: string;
@@ -45,4 +45,51 @@ export async function getReport(sessionId: string, runId: string, signal?: Abort
 export function requestError(error: unknown): string {
   const value = error as { response?: { data?: { err_msg?: string } }; message?: string };
   return value?.response?.data?.err_msg || value?.message || '请求失败，请重试';
+}
+
+async function sourceBlob(sessionId: string, path: string, type: string, signal?: AbortSignal): Promise<Blob> {
+  try {
+    const response = await GET(path, { session_id: sessionId }, { responseType: 'blob', signal });
+    const blob = response.data as unknown as Blob;
+    if (!(blob instanceof Blob) || blob.type !== type) throw new Error('来源文件响应格式错误');
+    return blob;
+  } catch (cause) {
+    const data = (cause as { response?: { data?: unknown } })?.response?.data;
+    if (data instanceof Blob) {
+      let message: string | undefined;
+      try {
+        message = JSON.parse(await data.text()).err_msg;
+      } catch {
+        /* Not a JSON error envelope. */
+      }
+      if (message) throw new Error(message);
+    }
+    throw new Error(requestError(cause));
+  }
+}
+
+const sourcePath = (runId: string, documentId: string) =>
+  `${base}/${encodeURIComponent(runId)}/documents/${encodeURIComponent(documentId)}`;
+
+export const getSourcePage = (
+  sessionId: string,
+  runId: string,
+  documentId: string,
+  page: number,
+  signal: AbortSignal,
+) => sourceBlob(sessionId, `${sourcePath(runId, documentId)}/pages/${page}`, 'image/png', signal);
+
+export async function downloadSource(sessionId: string, runId: string, source: SourceDocument) {
+  const blob = await sourceBlob(sessionId, `${sourcePath(runId, source.id)}/download`, 'application/pdf');
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  try {
+    anchor.href = url;
+    anchor.download = source.fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+  } finally {
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }

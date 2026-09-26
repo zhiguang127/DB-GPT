@@ -1,5 +1,6 @@
 """Bounded local background runs. No uploaded code or client paths are executed."""
 
+import hashlib
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ class FinancialAnalysisService:
         self.extractor = extractor or self._extract
         self._lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(4)
+        self._preview_slots = threading.BoundedSemaphore(2)
         self._executor = ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="financial"
         )
@@ -230,6 +232,86 @@ class FinancialAnalysisService:
         if not isinstance(result, dict) or result.get("error"):
             raise ValueError("PDF 提取未成功，请检查文件。")
         return result
+
+    def open_source(self, owner, session_id, run_id, document_id):
+        report = self.get(owner, session_id, run_id, report=True)
+        document = next(
+            (d for d in report["documents"] if d["id"] == document_id), None
+        )
+        run = self.get(owner, session_id, run_id)
+        if not document or document.get("fileId") != run["file_id"]:
+            raise SessionFileApiError(
+                404, "SOURCE_NOT_FOUND", "未找到此报告的来源文件。"
+            )
+        opened = self.registry.open_download(
+            owner_id=owner, session_id=session_id, file_id=document["fileId"]
+        )
+        if opened is None:
+            raise SessionFileApiError(
+                404, "SOURCE_NOT_FOUND", "原文件已不可用；已保存的摘录仍可查看。"
+            )
+        stream, record = opened
+        if record.sha256 != document.get("sha256"):
+            stream.close()
+            raise SessionFileApiError(
+                409, "SOURCE_CHANGED", "来源文件与报告快照不一致。"
+            )
+        return stream, record, document
+
+    def render_source_page(self, owner, session_id, run_id, document_id, page_number):
+        stream, record, document = self.open_source(
+            owner, session_id, run_id, document_id
+        )
+        try:
+            if not 1 <= page_number <= document.get("pageCount", 0):
+                raise SessionFileApiError(
+                    404, "PAGE_NOT_FOUND", "PDF 物理页码超出范围。"
+                )
+            if not self._preview_slots.acquire(blocking=False):
+                raise SessionFileApiError(
+                    429, "PREVIEW_BUSY", "页面正在加载，请稍后重试。"
+                )
+            try:
+                scope = FileScope(owner_id=owner, session_id=session_id)
+                with self.registry.materialize_local_file(
+                    scope, stream, ".pdf"
+                ) as path:
+                    if hashlib.sha256(path.read_bytes()).hexdigest() != record.sha256:
+                        raise SessionFileApiError(
+                            409, "SOURCE_CHANGED", "来源文件内容校验失败。"
+                        )
+                    completed = subprocess.run(
+                        [
+                            sys.executable,
+                            str(Path(__file__).with_name("render_pdf.py")),
+                            str(path),
+                            str(page_number),
+                        ],
+                        capture_output=True,
+                        timeout=20,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                        if os.name == "nt"
+                        else 0,
+                    )
+                    if completed.returncode == 2:
+                        raise SessionFileApiError(
+                            404, "PAGE_NOT_FOUND", "PDF 物理页码超出范围。"
+                        )
+                    if completed.returncode or not completed.stdout.startswith(
+                        b"\x89PNG\r\n\x1a\n"
+                    ):
+                        raise SessionFileApiError(
+                            422, "PREVIEW_FAILED", "此页无法预览，请下载原 PDF 核对。"
+                        )
+                    return completed.stdout
+            except subprocess.TimeoutExpired as exc:
+                raise SessionFileApiError(
+                    504, "PREVIEW_TIMEOUT", "页面渲染超时，请重试或下载原 PDF。"
+                ) from exc
+            finally:
+                self._preview_slots.release()
+        finally:
+            stream.close()
 
     def close(self):
         self._executor.shutdown(wait=True)

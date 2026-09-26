@@ -5,7 +5,7 @@ Lifecycle (mirrors ``scheduled_task/serve.py``):
                         registry (storage seam, DAO, inspector, config, work
                         root) and bind it to the endpoints module
     on_init           - import the Entity class to register SQLAlchemy metadata
-    before_start      - create/get the database manager (sync)
+    before_start      - create/get the database manager and bind shared storage
     async_before_stop - close the registry and unbind the endpoints module so
                         storage-backed endpoints fail closed again
 """
@@ -76,6 +76,7 @@ class SessionFileServe(BaseServe):
         self._work_root = Path(work_root) if work_root is not None else None
         self._db_manager: Optional[DatabaseManager] = None
         self._financial_analysis = None
+        self._uses_fallback_storage = False
 
     @property
     def registry(self) -> Optional[SessionFileRegistry]:
@@ -122,8 +123,18 @@ class SessionFileServe(BaseServe):
         from .models.models import SessionFileEntity  # noqa: F401
 
     def before_start(self):
-        """Create or get the database manager (sync)."""
+        """Initialize metadata and bind storage registered during after_init."""
         self._db_manager = self.create_or_get_db_manager()
+        # FileServe registers its persistent client in after_init, later than
+        # this component's init_app. Replace only our temporary fallback before
+        # accepting requests; explicit clients/registries remain untouched.
+        if self._uses_fallback_storage and self._registry is not None:
+            client = FileStorageClient.get_instance(
+                self._system_app, default_component=None
+            )
+            if client is not None:
+                self._registry.bind_storage_client(client)
+                self._uses_fallback_storage = False
 
     async def async_before_stop(self):
         """Close the registry and unbind the endpoints module."""
@@ -172,4 +183,5 @@ class SessionFileServe(BaseServe):
             "No shared FileStorageClient registered; session file serve "
             "creates a default local storage client."
         )
+        self._uses_fallback_storage = True
         return FileStorageClient()

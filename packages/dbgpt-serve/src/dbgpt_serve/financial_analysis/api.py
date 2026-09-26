@@ -1,9 +1,12 @@
 """Financial run API reusing the session-file authentication and envelopes."""
 
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from dbgpt_serve.core import Result
 from dbgpt_serve.session_file.api.endpoints import (
@@ -44,5 +47,55 @@ def make_router(service):
         owner: str = Depends(get_authenticated_owner),
     ):
         return Result.succ(service.get(owner, session_id, str(run_id), report=True))
+
+    @router.get("/runs/{run_id}/documents/{document_id}/pages/{page_number}")
+    def source_page(
+        run_id: UUID,
+        document_id: str,
+        page_number: int = Path(ge=1),
+        session_id: str = Query(min_length=1, max_length=255),
+        owner: str = Depends(get_authenticated_owner),
+    ):
+        png = service.render_source_page(
+            owner, session_id, str(run_id), document_id, page_number
+        )
+        return Response(
+            png,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @router.get("/runs/{run_id}/documents/{document_id}/download")
+    def source_download(
+        run_id: UUID,
+        document_id: str,
+        session_id: str = Query(min_length=1, max_length=255),
+        owner: str = Depends(get_authenticated_owner),
+    ):
+        stream, record, _ = service.open_source(
+            owner, session_id, str(run_id), document_id
+        )
+
+        def chunks():
+            try:
+                while chunk := stream.read(1024 * 1024):
+                    yield chunk
+            finally:
+                stream.close()
+
+        return StreamingResponse(
+            chunks(),
+            media_type="application/pdf",
+            background=BackgroundTask(stream.close),
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''"
+                + quote(record.display_name),
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     return router

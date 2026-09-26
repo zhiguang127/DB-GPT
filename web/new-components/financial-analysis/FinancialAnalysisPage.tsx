@@ -25,7 +25,7 @@ import { BalanceTab, CashFlowTab, OverviewTab, ProfitabilityTab, StatementsTab }
 import SourcePreviewPanel from './SourcePreviewPanel';
 import styles from './financial-analysis.module.css';
 import { runStatusLabels } from './report-data';
-import { EvidenceExcerpt, EvidenceSelection, ReportData } from './types';
+import { EvidenceExcerpt, EvidenceSelection, ReportData, SourcePreviewAccess } from './types';
 
 type WorkspaceTab = 'report' | 'execution' | 'files' | 'skill' | 'evidence';
 const workspaceTabs: Array<{ key: WorkspaceTab; label: string; icon: React.ReactNode }> = [
@@ -132,7 +132,10 @@ const SkillPanel: React.FC = () => {
   );
 };
 
-const FinancialAnalysisWorkspace: React.FC<{ onNewReport?: () => void }> = ({ onNewReport }) => {
+const FinancialAnalysisWorkspace: React.FC<{ onNewReport?: () => void; sourceAccess?: SourcePreviewAccess }> = ({
+  onNewReport,
+  sourceAccess,
+}) => {
   const { data, sourceDocumentMap } = useReportData();
   const router = useRouter();
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('report');
@@ -276,6 +279,7 @@ const FinancialAnalysisWorkspace: React.FC<{ onNewReport?: () => void }> = ({ on
                 </div>
                 {previewEvidence && previewDocument ? (
                   <SourcePreviewPanel
+                    sourceAccess={data.mode === 'report' ? sourceAccess : undefined}
                     evidence={previewEvidence}
                     document={previewDocument}
                     onBack={() => {
@@ -301,9 +305,13 @@ const FinancialAnalysisWorkspace: React.FC<{ onNewReport?: () => void }> = ({ on
     </main>
   );
 };
-const FinancialAnalysisPage: React.FC<{ data: ReportData; onNewReport?: () => void }> = ({ data, onNewReport }) => (
+const FinancialAnalysisPage: React.FC<{
+  data: ReportData;
+  onNewReport?: () => void;
+  sourceAccess?: SourcePreviewAccess;
+}> = ({ data, onNewReport, sourceAccess }) => (
   <ReportDataProvider key={`${data.report.id}:${data.report.run.id}:${data.revision}`} data={data}>
-    <FinancialAnalysisWorkspace onNewReport={onNewReport} />
+    <FinancialAnalysisWorkspace onNewReport={onNewReport} sourceAccess={sourceAccess} />
   </ReportDataProvider>
 );
 export default FinancialAnalysisPage;
