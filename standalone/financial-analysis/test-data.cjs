@@ -47,7 +47,6 @@ const sections = require(path.join(folder, 'ReportSections.tsx'));
 const Page = require(path.join(folder, 'FinancialAnalysisPage.tsx')).default;
 const Evidence = require(path.join(folder, 'EvidencePanel.tsx')).default;
 const Execution = require(path.join(folder, 'ExecutionProcessPanel.tsx')).default;
-const AnalysisStatus = require(path.join(folder, 'AnalysisStatusPanel.tsx')).default;
 const Source = require(path.join(folder, 'SourcePreviewPanel.tsx')).default;
 const { evidencePages } = require(path.join(folder, 'PdfPagePreview.tsx'));
 assert.deepEqual(evidencePages({ page: 164, headerPage: 161, unitPage: 160 }), [164, 161, 160]);
@@ -66,17 +65,30 @@ const noop = () => {};
 const render = (Component, data, props = {}) => renderToStaticMarkup(React.createElement(
   ReportDataProvider, { data }, React.createElement(Component, { onOpenEvidence: noop, ...props }),
 ));
+const analysisStep = { id: 'analyze', order: 5, type: 'analysis', title: '生成并校验模型分析', detail: '财务数据已保存。', status: 'completed' };
+const analysisBase = { ...alternateReportFixture, steps: [...alternateReportFixture.steps, analysisStep] };
 for (const [status, expected] of Object.entries({
-  running: '财务数据已就绪', completed: '模型分析已生成', partial: '已保留部分分析', failed: '财务数据和原文仍可查看',
+  running: '分析中', completed: '分析完成', partial: '部分分析', failed: '分析未完成',
 })) {
-  const report = { ...alternateReportFixture, analysis: { status, modelName: 'qwen-test', rejectedCount: 0 } };
-  const panel = render(AnalysisStatus, report, { actions: { retry: noop, refresh: noop, busy: false } });
+  const report = { ...analysisBase, analysis: { status, modelName: 'qwen-test', rejectedCount: 0 } };
+  let retried = false, refreshed = false;
+  const actions = { retry: () => { retried = true; }, refresh: () => { refreshed = true; }, busy: false, error: '网络中断' };
+  // Analysis state/actions must not change the report surface or add a banner.
+  assert.equal(renderToStaticMarkup(React.createElement(Page, { data: report, analysisActions: actions })),
+    renderToStaticMarkup(React.createElement(Page, { data: analysisBase })));
+  captures.buttons.length = 0;
+  const panel = render(Execution, report, { activeStepId: 'analyze', onStepSelect: noop, analysisActions: actions });
   assert.ok(panel.includes(expected));
   assert.equal(panel.includes('重新分析此文件'), status === 'failed' || status === 'partial');
+  if (status === 'failed' || status === 'partial') {
+    captures.buttons.find(button => button.children.includes('重新分析此文件')).onClick();
+    assert.ok(retried);
+  }
+  captures.buttons.find(button => button.children.includes('重新读取进度')).onClick();
+  assert.ok(refreshed);
+  const otherStep = render(Execution, report, { activeStepId: report.steps[0].id, onStepSelect: noop, analysisActions: actions });
+  assert.ok(!otherStep.includes('重新分析此文件') && !otherStep.includes('网络中断'));
 }
-assert.equal(render(AnalysisStatus, mockReportData), '');
-assert.ok(render(AnalysisStatus, { ...alternateReportFixture, analysis: { status: 'running', modelName: 'qwen-test' } },
-  { actions: { retry: noop, refresh: noop, busy: false, error: '网络中断' } }).includes('重新读取进度'));
 const forbidden = /2019|2018|2017|26\.61|21\.14|0\.57|0\.77|4\.06|3\.42|安靠|E35|finding-earnings/;
 for (const data of [alternateReportFixture, emptyReportFixture]) {
   for (const Component of Object.values(sections)) {

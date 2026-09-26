@@ -17,10 +17,9 @@ import { Tooltip } from 'antd';
 import { useRouter } from 'next/router';
 import React, { useRef, useState } from 'react';
 import AgentRunPanel from './AgentRunPanel';
-import AnalysisStatusPanel, { AnalysisActions } from './AnalysisStatusPanel';
 import AskDbGPTDock from './AskDbGPTDock';
 import EvidencePanel from './EvidencePanel';
-import ExecutionProcessPanel from './ExecutionProcessPanel';
+import ExecutionProcessPanel, { AnalysisActions } from './ExecutionProcessPanel';
 import { ReportDataProvider, useReportData } from './ReportDataContext';
 import { BalanceTab, CashFlowTab, OverviewTab, ProfitabilityTab, StatementsTab } from './ReportSections';
 import SourcePreviewPanel from './SourcePreviewPanel';
@@ -245,7 +244,6 @@ const FinancialAnalysisWorkspace: React.FC<{
             {workspaceTab === 'report' && (
               <>
                 <ArtifactContext />
-                <AnalysisStatusPanel actions={analysisActions} />
                 <nav className={styles.reportNav} aria-label='财务分析章节'>
                   {financialTabs.map(tab => (
                     <button
@@ -266,7 +264,11 @@ const FinancialAnalysisWorkspace: React.FC<{
               </>
             )}
             {workspaceTab === 'execution' && (
-              <ExecutionProcessPanel activeStepId={activeStepId} onStepSelect={setActiveStepId} />
+              <ExecutionProcessPanel
+                activeStepId={activeStepId}
+                onStepSelect={setActiveStepId}
+                analysisActions={analysisActions}
+              />
             )}
             {workspaceTab === 'files' && (
               <FilesPanel onOpenSource={openSource} onOpenArtifact={() => switchWorkspace('report')} />
