@@ -150,6 +150,20 @@ class SessionFileServe(BaseServe):
         _reset_endpoints()
         logger.info("Session file endpoints unbound; serve stopped.")
 
+    async def async_after_start(self):
+        """Bind model work to the serving event loop after components initialize."""
+        import asyncio
+        import os
+
+        from dbgpt_serve.financial_analysis.analysis import QwenAnalyzer
+
+        if self._financial_analysis is not None:
+            self._financial_analysis.analyzer = QwenAnalyzer(
+                self._system_app,
+                asyncio.get_running_loop(),
+                model=os.getenv("DBGPT_FINANCIAL_MODEL", "qwen-plus"),
+            )
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------

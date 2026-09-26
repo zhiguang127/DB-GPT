@@ -14,6 +14,7 @@ from pathlib import Path
 from dbgpt_serve.session_file.api.endpoints import SessionFileApiError
 from dbgpt_serve.session_file.domain import FileScope
 
+from .analysis import SECTIONS, InvalidFindings, apply_findings, validate_findings
 from .models import FinancialRunEntity as Run
 from .report import build_report
 
@@ -31,10 +32,11 @@ class FinancialAnalysisService:
     The PDF is opened inside the worker and stays alive until extraction exits.
     """
 
-    def __init__(self, registry, *, extractor=None):
+    def __init__(self, registry, *, extractor=None, analyzer=None):
         self.registry = registry
         self.session = registry.dao.session
         self.extractor = extractor or self._extract
+        self.analyzer = analyzer
         self._lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(4)
         self._preview_slots = threading.BoundedSemaphore(2)
@@ -56,10 +58,23 @@ class FinancialAnalysisService:
                 },
                 synchronize_session=False,
             )
+            # Data snapshots are committed before model work. Preserve them if
+            # the process exited during analysis; do not leave a perpetual spinner.
+            for row in session.query(Run).filter_by(
+                status="completed", stage="analyze"
+            ):
+                report = json.loads(row.report_json)
+                self._finish_report_analysis(
+                    report, "failed", "服务重启，模型分析已中断；财务数据仍可查看。"
+                )
+                row.report_json = json.dumps(
+                    report, ensure_ascii=False, allow_nan=False
+                )
+                row.stage, row.updated_at = "completed", now()
 
     @staticmethod
     def _public(row):
-        return {
+        result = {
             key: getattr(row, key)
             for key in [
                 "id",
@@ -73,6 +88,13 @@ class FinancialAnalysisService:
                 "error",
             ]
         }
+        result["report_ready"] = bool(row.report_json)
+        result["analysis_status"] = (
+            json.loads(row.report_json).get("analysis", {}).get("status")
+            if row.report_json
+            else None
+        )
+        return result
 
     def get(self, owner, session_id, run_id, *, report=False):
         with self.session(commit=False) as session:
@@ -176,15 +198,47 @@ class FinancialAnalysisService:
             report = build_report(
                 extracted, {"id": run_id, "completed_at": completed_at}, record
             )
+            analyzer = self.analyzer
+            if analyzer is not None:
+                report["analysis"] = {
+                    "status": "running",
+                    "modelName": analyzer.model,
+                    "startedAt": now(),
+                    "completedAt": None,
+                    "error": None,
+                    "rejectedCount": 0,
+                }
+                report["report"]["run"]["modelName"] = analyzer.model
+                report["steps"].append(
+                    {
+                        "id": "analyze",
+                        "order": len(report["steps"]) + 1,
+                        "type": "analysis",
+                        "title": "生成并校验模型分析",
+                        "detail": "财务数据已保存，正在基于引用生成分析。",
+                        "status": "running",
+                        "capability": "existing",
+                    }
+                )
+                report["agent"]["groups"].append(
+                    {
+                        "id": "analysis",
+                        "title": "模型分析",
+                        "stepIds": ["analyze"],
+                        "content": "基于已保存事实和计算，生成并校验引用。",
+                    }
+                )
             self._update(run_id, stage="save")
             # Status and snapshot become visible in the same transaction.
             self._update(
                 run_id,
                 status="completed",
-                stage="completed",
+                stage="analyze" if analyzer is not None else "completed",
                 completed_at=completed_at,
                 report_json=json.dumps(report, ensure_ascii=False, allow_nan=False),
             )
+            if analyzer is not None:
+                self._analyze(run_id, report, analyzer, owner, session_id)
         except subprocess.TimeoutExpired:
             self._update(
                 run_id,
@@ -204,6 +258,59 @@ class FinancialAnalysisService:
             )
         finally:
             self._slots.release()
+
+    @staticmethod
+    def _finish_report_analysis(report, status, error=None, rejected=0):
+        report["analysis"].update(
+            status=status,
+            error=error,
+            completedAt=now(),
+            rejectedCount=rejected,
+        )
+        report["revision"] = report["report"]["run"]["id"] + "-analysis-final"
+        step = next(s for s in report["steps"] if s["id"] == "analyze")
+        step["status"] = "failed" if status == "failed" else "completed"
+        step["detail"] = error or (
+            f"已保留 {len(report['findings'])} 条引用校验通过的分析；"
+            f"{rejected} 条未通过校验。结论仍需人工核对。"
+        )
+        report["agent"]["summary"] = "财务事实、计算和原文已保存。\n\n" + step["detail"]
+
+    def _analyze(self, run_id, report, analyzer, owner, session_id):
+        # Catch model/validation failures here, separately from data processing.
+        # Do not persist raw model output, provider errors, credentials or reasoning.
+        rejected = 0
+        try:
+            raw = analyzer(report, owner, session_id)
+            findings, rejected = validate_findings(raw, report)
+            report = apply_findings(report, findings)
+            covered = {f["sectionKey"] for f in findings}
+            status = "partial" if rejected or covered != set(SECTIONS) else "completed"
+            error = None
+        except TimeoutError:
+            status, error = "failed", "模型分析超时，财务数据和原文仍可查看。"
+        except InvalidFindings as exc:
+            rejected = exc.rejected_count
+            logger.warning("Analysis rejected for run %s: %s", run_id, exc.issue_counts)
+            status, error = "failed", "模型输出未通过数字或引用校验，财务数据仍可查看。"
+        except ValueError:
+            logger.warning("Analysis format invalid for run %s", run_id)
+            status, error = (
+                "failed",
+                "模型输出未通过结构、数字或引用校验，财务数据仍可查看。",
+            )
+        except Exception:
+            status, error = "failed", "模型分析暂不可用，财务数据和原文仍可查看。"
+        self._finish_report_analysis(report, status, error, rejected)
+        try:
+            self._update(
+                run_id,
+                stage="completed",
+                report_json=json.dumps(report, ensure_ascii=False, allow_nan=False),
+            )
+        except Exception:
+            # The earlier data snapshot remains valid even if this write fails.
+            logger.error("Could not persist analysis for run %s", run_id)
 
     @staticmethod
     def _extract(path):

@@ -31,6 +31,11 @@ def client_context(url):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url")
+    parser.add_argument(
+        "--check-analysis",
+        action="store_true",
+        help="Wait for model analysis and require validated findings",
+    )
     parser.add_argument("--pdf-dir", type=Path, default=ROOT / "testpdf")
     parser.add_argument(
         "--output-dir", type=Path, default=ROOT / ".work/financial-analysis/round4"
@@ -83,15 +88,31 @@ def main():
                     status = client.get(
                         f"{BASE}/{run_id}", headers=headers, params=params
                     ).json()["data"]
-                    if status["status"] in {"completed", "failed"}:
+                    if status["status"] == "failed" or (
+                        status["status"] == "completed"
+                        and (
+                            not args.check_analysis
+                            or status.get("analysis_status") != "running"
+                        )
+                    ):
                         break
-                    assert time.monotonic() - started < 150, "Run timeout"
+                    assert time.monotonic() - started < 240, "Run timeout"
                     time.sleep(0.25)
                 assert status["status"] == "completed", status
                 report_url = f"{BASE}/{run_id}/report"
                 report = client.get(report_url, headers=headers, params=params).json()[
                     "data"
                 ]
+                if args.check_analysis:
+                    assert report.get("analysis", {}).get("status") in {
+                        "completed",
+                        "partial",
+                    }, report.get("analysis")
+                    assert report["findings"]
+                    for finding in report["findings"]:
+                        assert finding["factIds"] and finding["evidenceExcerptIds"]
+                        assert "{{" not in finding["summary"]
+                        assert finding["supportStatus"] in {"partial", "unresolved"}
                 assert report["documents"][0]["sha256"] == sample["sha256"]
                 assert report["documents"][0]["fileName"] == path.name
                 for year, values in sample["values"].items():
