@@ -47,6 +47,7 @@ const sections = require(path.join(folder, 'ReportSections.tsx'));
 const Page = require(path.join(folder, 'FinancialAnalysisPage.tsx')).default;
 const Evidence = require(path.join(folder, 'EvidencePanel.tsx')).default;
 const Execution = require(path.join(folder, 'ExecutionProcessPanel.tsx')).default;
+const AnalysisStatus = require(path.join(folder, 'AnalysisStatusPanel.tsx')).default;
 const Source = require(path.join(folder, 'SourcePreviewPanel.tsx')).default;
 const { evidencePages } = require(path.join(folder, 'PdfPagePreview.tsx'));
 assert.deepEqual(evidencePages({ page: 164, headerPage: 161, unitPage: 160 }), [164, 161, 160]);
@@ -65,6 +66,17 @@ const noop = () => {};
 const render = (Component, data, props = {}) => renderToStaticMarkup(React.createElement(
   ReportDataProvider, { data }, React.createElement(Component, { onOpenEvidence: noop, ...props }),
 ));
+for (const [status, expected] of Object.entries({
+  running: '财务数据已就绪', completed: '模型分析已生成', partial: '已保留部分分析', failed: '财务数据和原文仍可查看',
+})) {
+  const report = { ...alternateReportFixture, analysis: { status, modelName: 'qwen-test', rejectedCount: 0 } };
+  const panel = render(AnalysisStatus, report, { actions: { retry: noop, refresh: noop, busy: false } });
+  assert.ok(panel.includes(expected));
+  assert.equal(panel.includes('重新分析此文件'), status === 'failed' || status === 'partial');
+}
+assert.equal(render(AnalysisStatus, mockReportData), '');
+assert.ok(render(AnalysisStatus, { ...alternateReportFixture, analysis: { status: 'running', modelName: 'qwen-test' } },
+  { actions: { retry: noop, refresh: noop, busy: false, error: '网络中断' } }).includes('重新读取进度'));
 const forbidden = /2019|2018|2017|26\.61|21\.14|0\.57|0\.77|4\.06|3\.42|安靠|E35|finding-earnings/;
 for (const data of [alternateReportFixture, emptyReportFixture]) {
   for (const Component of Object.values(sections)) {
@@ -157,6 +169,14 @@ for (const filename of process.argv.slice(2)) {
     const details = render(Evidence, data, { selection: { calculationId: calculation.id }, onFindingChange: noop, onOpenSource: noop });
     assert.ok(details.includes(calculation.displayResult));
     for (const step of calculation.steps) assert.ok(details.includes(step));
+  }
+  for (const finding of data.findings) {
+    const resolved = resolveEvidence(data, { findingId: finding.id });
+    assert.ok(resolved.facts.length && resolved.evidence.length);
+    const details = render(Evidence, data, { selection: { findingId: finding.id }, onFindingChange: noop, onOpenSource: noop });
+    assert.ok(details.includes(finding.title));
+    assert.ok(!finding.summary.includes('{{'));
+    for (const id of finding.factIds) assert.ok(resolved.facts.some(fact => fact.id === id));
   }
   console.log(`Real report rendering and metric-to-evidence navigation passed: ${path.basename(filename)}`);
 }

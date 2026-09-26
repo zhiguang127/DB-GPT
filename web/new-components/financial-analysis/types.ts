@@ -187,6 +187,14 @@ export interface ReportData {
   schemaVersion: 1;
   revision: string;
   mode: 'demo' | 'report';
+  analysis?: {
+    status: 'running' | 'completed' | 'partial' | 'failed';
+    modelName: string;
+    startedAt: string;
+    completedAt?: string | null;
+    error?: string | null;
+    rejectedCount: number;
+  };
   report: FinancialReport;
   documents: SourceDocument[];
   evidence: EvidenceExcerpt[];

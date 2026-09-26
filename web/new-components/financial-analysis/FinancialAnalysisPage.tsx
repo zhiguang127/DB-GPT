@@ -17,6 +17,7 @@ import { Tooltip } from 'antd';
 import { useRouter } from 'next/router';
 import React, { useRef, useState } from 'react';
 import AgentRunPanel from './AgentRunPanel';
+import AnalysisStatusPanel, { AnalysisActions } from './AnalysisStatusPanel';
 import AskDbGPTDock from './AskDbGPTDock';
 import EvidencePanel from './EvidencePanel';
 import ExecutionProcessPanel from './ExecutionProcessPanel';
@@ -132,10 +133,11 @@ const SkillPanel: React.FC = () => {
   );
 };
 
-const FinancialAnalysisWorkspace: React.FC<{ onNewReport?: () => void; sourceAccess?: SourcePreviewAccess }> = ({
-  onNewReport,
-  sourceAccess,
-}) => {
+const FinancialAnalysisWorkspace: React.FC<{
+  onNewReport?: () => void;
+  sourceAccess?: SourcePreviewAccess;
+  analysisActions?: AnalysisActions;
+}> = ({ onNewReport, sourceAccess, analysisActions }) => {
   const { data, sourceDocumentMap } = useReportData();
   const router = useRouter();
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('report');
@@ -243,6 +245,7 @@ const FinancialAnalysisWorkspace: React.FC<{ onNewReport?: () => void; sourceAcc
             {workspaceTab === 'report' && (
               <>
                 <ArtifactContext />
+                <AnalysisStatusPanel actions={analysisActions} />
                 <nav className={styles.reportNav} aria-label='财务分析章节'>
                   {financialTabs.map(tab => (
                     <button
@@ -309,9 +312,14 @@ const FinancialAnalysisPage: React.FC<{
   data: ReportData;
   onNewReport?: () => void;
   sourceAccess?: SourcePreviewAccess;
-}> = ({ data, onNewReport, sourceAccess }) => (
+  analysisActions?: AnalysisActions;
+}> = ({ data, onNewReport, sourceAccess, analysisActions }) => (
   <ReportDataProvider key={`${data.report.id}:${data.report.run.id}:${data.revision}`} data={data}>
-    <FinancialAnalysisWorkspace onNewReport={onNewReport} sourceAccess={sourceAccess} />
+    <FinancialAnalysisWorkspace
+      onNewReport={onNewReport}
+      sourceAccess={sourceAccess}
+      analysisActions={analysisActions}
+    />
   </ReportDataProvider>
 );
 export default FinancialAnalysisPage;

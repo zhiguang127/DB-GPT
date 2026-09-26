@@ -9,6 +9,8 @@ export interface FinancialRunStatus {
   status: 'pending' | 'running' | 'completed' | 'failed';
   stage: string;
   error: string | null;
+  report_ready?: boolean;
+  analysis_status?: 'running' | 'completed' | 'partial' | 'failed' | null;
 }
 const base = '/api/v1/financial-analysis/runs';
 function unwrap<T>(response: ApiResponse<T>): T {

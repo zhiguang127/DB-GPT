@@ -13,6 +13,7 @@ const stageLabels: Record<string, string> = {
   extract: '正在读取 PDF 并提取财务事实',
   calculate: '正在计算财务指标',
   save: '正在保存报告',
+  analyze: '财务数据已就绪，正在生成模型分析',
   completed: '分析完成',
 };
 
@@ -39,7 +40,6 @@ const FinancialAnalysisRoute: React.FC = () => {
   );
 
   useEffect(() => {
-    setData(null);
     setRun(null);
     setError('');
     if (!router.isReady || demo || !runId || !sessionId) return;
@@ -50,11 +50,13 @@ const FinancialAnalysisRoute: React.FC = () => {
         const status = await getRun(sessionId, runId, controller.signal);
         if (controller.signal.aborted) return;
         setRun(status);
-        if (status.status === 'completed') {
+        if (status.report_ready || status.status === 'completed') {
           const report = await getReport(sessionId, runId, controller.signal);
           if (!controller.signal.aborted) {
             setData(report);
             setLoadedScope(`${sessionId}:${runId}`);
+            setError('');
+            if (report.analysis?.status === 'running') timer = setTimeout(poll, 1500);
           }
         } else if (status.status !== 'failed') {
           timer = setTimeout(poll, 1500);
@@ -105,10 +107,24 @@ const FinancialAnalysisRoute: React.FC = () => {
     setError('');
     void router.push('/financial-analysis');
   };
+  const activeRun = run?.id === runId && run.session_id === sessionId ? run : null;
   if (demo) return <FinancialAnalysisPage data={mockReportData} />;
   if (data && loadedScope === `${sessionId}:${runId}` && data.report.run.id === runId)
-    return <FinancialAnalysisPage data={data} onNewReport={startNew} sourceAccess={sourceAccess} />;
-  const activeRun = run?.id === runId && run.session_id === sessionId ? run : null;
+    return (
+      <FinancialAnalysisPage
+        data={data}
+        onNewReport={startNew}
+        sourceAccess={sourceAccess}
+        analysisActions={{
+          retry: () => {
+            if (activeRun) void submit(activeRun);
+          },
+          refresh: () => setRetry(value => value + 1),
+          busy,
+          error,
+        }}
+      />
+    );
   const invalidLink = !!runId !== !!sessionId;
   return (
     <main className='mx-auto max-w-3xl p-8'>
