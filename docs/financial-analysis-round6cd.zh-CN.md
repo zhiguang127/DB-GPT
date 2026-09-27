@@ -62,4 +62,4 @@ node standalone/financial-analysis/test-data.cjs .work/financial-analysis/round6
 
 ## 下一轮
 
-第 7 轮接通真实追问：问题绑定 run ID 和 revision，限定当前报告上下文，回答沿用数字及引用校验，资料不足时明确说明。当前追问入口尚未接入真实模型。
+后续进展见[第 7 轮真实追问](financial-analysis-round7.zh-CN.md)：问题绑定 run ID 和 revision，限定当前报告上下文，回答沿用数字及引用校验，资料不足时明确说明。
