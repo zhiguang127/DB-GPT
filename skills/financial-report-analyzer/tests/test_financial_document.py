@@ -272,6 +272,33 @@ class FinancialDocumentTest(unittest.TestCase):
         self.assertIsNone(result["revenue"])
         self.assertEqual(fact(result, "revenue")["missingReason"], "unknown_unit")
 
+    def test_pre_post_adjustment_subheaders_cannot_select_unadjusted_value(self):
+        for subheader in [
+            ["", "", "调整前", "调整后"],
+            ["", "2024年", "2023年", "调整后"],
+        ]:
+            with self.subTest(subheader=subheader):
+                source = table(
+                    [
+                        ["项目", "2024年", "2023年", ""],
+                        subheader,
+                        [
+                            "总资产（元）",
+                            "2319692337.68",
+                            "2219758361.24",
+                            "2219763827.15",
+                        ],
+                    ],
+                    scope="summary",
+                    statement="summary",
+                )
+                result = build_result([page(1, source)], "doc", "fixture.pdf")
+                self.assertIsNone(
+                    fact(result, "total_assets", "2023")["normalizedValue"]
+                )
+                self.assertIsNone(result["total_assets"])
+                self.assertEqual(result["evidence"], [])
+
     def test_document_without_text_is_explicitly_unsupported(self):
         from pypdf import PdfWriter
 

@@ -244,6 +244,14 @@ def table_candidates(pages, document_id):
                 continue
             for row in logical_rows(table["rows"]):
                 cells = row["cells"]
+                # A year may span pre/post-adjustment subcolumns. Without an
+                # explicit restatement model, neither subcolumn is a safe
+                # annual comparison. Check before accepting a year header too.
+                if any(
+                    re.search(r"调整前|调整后|调整数|重述", compact(c)) for c in cells
+                ):
+                    header = None
+                    continue
                 years = {
                     i: period_header(c) for i, c in enumerate(cells) if period_header(c)
                 }
