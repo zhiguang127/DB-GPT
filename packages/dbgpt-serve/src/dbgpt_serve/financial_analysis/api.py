@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Path, Query
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.background import BackgroundTask
 
 from dbgpt_serve.core import Result
@@ -19,6 +19,21 @@ class CreateRun(BaseModel):
     session_id: str = Field(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$")
     file_ids: list[str] = Field(min_length=1, max_length=1)
     request_id: UUID = Field(default_factory=uuid4)
+
+
+class AskQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    session_id: str = Field(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$")
+    revision: str = Field(min_length=1, max_length=255)
+    question: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("question")
+    @classmethod
+    def nonempty_question(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("Question is empty")
+        return value
 
 
 def make_router(service):
@@ -47,6 +62,16 @@ def make_router(service):
         owner: str = Depends(get_authenticated_owner),
     ):
         return Result.succ(service.get(owner, session_id, str(run_id), report=True))
+
+    @router.post("/runs/{run_id}/questions")
+    def ask_question(
+        run_id: UUID, body: AskQuestion, owner: str = Depends(get_authenticated_owner)
+    ):
+        return Result.succ(
+            service.ask(
+                owner, body.session_id, str(run_id), body.revision, body.question
+            )
+        )
 
     @router.get("/runs/{run_id}/documents/{document_id}/pages/{page_number}")
     def source_page(

@@ -16,6 +16,7 @@ from dbgpt_serve.session_file.domain import FileScope
 
 from .analysis import SECTIONS, InvalidFindings, apply_findings, validate_findings
 from .models import FinancialRunEntity as Run
+from .questions import question_context, reference_only_answer, validate_answer
 from .report import build_report
 
 logger = logging.getLogger(__name__)
@@ -32,11 +33,13 @@ class FinancialAnalysisService:
     The PDF is opened inside the worker and stays alive until extraction exits.
     """
 
-    def __init__(self, registry, *, extractor=None, analyzer=None):
+    def __init__(self, registry, *, extractor=None, analyzer=None, answerer=None):
         self.registry = registry
         self.session = registry.dao.session
         self.extractor = extractor or self._extract
         self.analyzer = analyzer
+        self.answerer = answerer
+        self._question_slots = threading.BoundedSemaphore(2)
         self._lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(4)
         self._preview_slots = threading.BoundedSemaphore(2)
@@ -110,6 +113,58 @@ class FinancialAnalysisService:
                     raise SessionFileApiError(409, "REPORT_NOT_READY", "报告尚未完成。")
                 return json.loads(row.report_json)
             return self._public(row)
+
+    def ask(self, owner, session_id, run_id, revision, question):
+        report = self.get(owner, session_id, run_id, report=True)
+        if report["revision"] != revision:
+            raise SessionFileApiError(
+                409, "REPORT_CHANGED", "报告已更新，请刷新后重新提问。"
+            )
+        answerer = self.answerer
+        if answerer is None:
+            raise SessionFileApiError(
+                503, "QUESTIONS_UNAVAILABLE", "追问服务尚未就绪，请稍后重试。"
+            )
+        if not self._question_slots.acquire(blocking=False):
+            raise SessionFileApiError(
+                429, "QUESTIONS_BUSY", "追问请求较多，请稍后重试。"
+            )
+        try:
+            try:
+                context = question_context(report, question)
+                raw = answerer(report, question, owner, session_id)
+                try:
+                    answer = validate_answer(raw, context, report)
+                    answer["answerMode"] = (
+                        "insufficient" if not answer["citations"] else "validated"
+                    )
+                except ValueError:
+                    answer = reference_only_answer(raw, context, report)
+            except TimeoutError as exc:
+                raise SessionFileApiError(
+                    504, "QUESTION_TIMEOUT", "回答超时，请稍后重新发送问题。"
+                ) from exc
+            except ValueError as exc:
+                raise SessionFileApiError(
+                    502, "ANSWER_INVALID", "回答未通过数字或引用校验，请重新提问。"
+                ) from exc
+            except Exception as exc:
+                raise SessionFileApiError(
+                    503, "QUESTIONS_UNAVAILABLE", "追问暂不可用，请稍后重试。"
+                ) from exc
+            if self.get(owner, session_id, run_id, report=True)["revision"] != revision:
+                raise SessionFileApiError(
+                    409, "REPORT_CHANGED", "报告已更新，请刷新后重新提问。"
+                )
+            return dict(
+                answer,
+                runId=run_id,
+                revision=revision,
+                question=question,
+                modelName=answerer.model,
+            )
+        finally:
+            self._question_slots.release()
 
     def create(self, owner, session_id, file_id, run_id):
         with self._lock:

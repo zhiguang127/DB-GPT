@@ -156,9 +156,15 @@ class SessionFileServe(BaseServe):
         import os
 
         from dbgpt_serve.financial_analysis.analysis import QwenAnalyzer
+        from dbgpt_serve.financial_analysis.questions import QwenQuestionAnswerer
 
         if self._financial_analysis is not None:
             self._financial_analysis.analyzer = QwenAnalyzer(
+                self._system_app,
+                asyncio.get_running_loop(),
+                model=os.getenv("DBGPT_FINANCIAL_MODEL", "qwen-plus"),
+            )
+            self._financial_analysis.answerer = QwenQuestionAnswerer(
                 self._system_app,
                 asyncio.get_running_loop(),
                 model=os.getenv("DBGPT_FINANCIAL_MODEL", "qwen-plus"),
