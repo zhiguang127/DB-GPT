@@ -45,3 +45,32 @@ whose parent directory already exists:
 ```powershell
 node standalone/financial-analysis/build.cjs .work/financial-analysis/demo-round2.html
 ```
+
+## Saved-report HTML exports
+
+Build the offline runtime separately from the delivered mock demo:
+
+```powershell
+New-Item -ItemType Directory -Force .work/financial-analysis | Out-Null
+node standalone/financial-analysis/build.cjs .work/financial-analysis/export-runtime.html --export-runtime
+```
+
+The backend inserts the saved report JSON into this runtime when the user selects
+HTML export in the existing Files panel. The runtime imports the same React report
+components, with no mock dataset. The result contains its data, styles, scripts,
+charts and source excerpts. It requires JavaScript but no network connection.
+Original PDF pages/downloads and online questions remain application features;
+the offline source panel explicitly shows excerpts. JSON export needs no build.
+
+The backend defaults to `.work/financial-analysis/export-runtime.html` alongside
+the repository's `skills` directory. Set `DBGPT_FINANCIAL_EXPORT_RUNTIME` to an
+absolute path for another deployment location. Rebuild after report UI changes.
+Already registered exports remain immutable for their report revision.
+
+Stateful history/export checks (pass an installed React 18 test-renderer path):
+
+```powershell
+node standalone/financial-analysis/test-history-exports.cjs <react-test-renderer-path>
+```
+
+These checks and the existing SSR/layout checks do not replace browser acceptance.
