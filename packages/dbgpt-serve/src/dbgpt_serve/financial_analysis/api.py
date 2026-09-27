@@ -1,5 +1,6 @@
 """Financial run API reusing the session-file authentication and envelopes."""
 
+from typing import Literal
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
@@ -36,8 +37,23 @@ class AskQuestion(BaseModel):
         return value
 
 
+class CreateExport(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    session_id: str = Field(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$")
+    revision: str = Field(min_length=1, max_length=255)
+    format: Literal["json", "html"]
+
+
 def make_router(service):
     router = APIRouter(route_class=_SessionFileApiRoute)
+
+    @router.get("/runs")
+    def list_runs(
+        page: int = Query(default=1, ge=1, le=100000),
+        page_size: int = Query(default=10, ge=1, le=30),
+        owner: str = Depends(get_authenticated_owner),
+    ):
+        return Result.succ(service.list_runs(owner, page, page_size))
 
     @router.post("/runs", status_code=202)
     def create_run(body: CreateRun, owner: str = Depends(get_authenticated_owner)):
@@ -62,6 +78,47 @@ def make_router(service):
         owner: str = Depends(get_authenticated_owner),
     ):
         return Result.succ(service.get(owner, session_id, str(run_id), report=True))
+
+    @router.get("/runs/{run_id}/exports")
+    def list_exports(
+        run_id: UUID,
+        session_id: str = Query(min_length=1, max_length=255),
+        owner: str = Depends(get_authenticated_owner),
+    ):
+        return Result.succ(service.list_exports(owner, session_id, str(run_id)))
+
+    @router.post("/runs/{run_id}/exports")
+    def create_export(
+        run_id: UUID, body: CreateExport, owner: str = Depends(get_authenticated_owner)
+    ):
+        return Result.succ(
+            service.create_export(
+                owner, body.session_id, str(run_id), body.revision, body.format
+            )
+        )
+
+    @router.get("/runs/{run_id}/exports/{export_id}")
+    def download_export(
+        run_id: UUID,
+        export_id: str = Path(pattern=r"^[a-f0-9]{64}$"),
+        session_id: str = Query(min_length=1, max_length=255),
+        owner: str = Depends(get_authenticated_owner),
+    ):
+        content, record = service.download_export(
+            owner, session_id, str(run_id), export_id
+        )
+        return Response(
+            content,
+            media_type="application/json"
+            if record["format"] == "json"
+            else "text/html",
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''"
+                + quote(record["file_name"]),
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @router.post("/runs/{run_id}/questions")
     def ask_question(

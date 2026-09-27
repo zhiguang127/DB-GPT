@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,8 @@ from dbgpt_serve.session_file.api.endpoints import SessionFileApiError
 from dbgpt_serve.session_file.domain import FileScope
 
 from .analysis import SECTIONS, InvalidFindings, apply_findings, validate_findings
+from .exports import render_export
+from .models import FinancialExportEntity as Export
 from .models import FinancialRunEntity as Run
 from .questions import question_context, reference_only_answer, validate_answer
 from .report import build_report
@@ -33,12 +36,21 @@ class FinancialAnalysisService:
     The PDF is opened inside the worker and stays alive until extraction exits.
     """
 
-    def __init__(self, registry, *, extractor=None, analyzer=None, answerer=None):
+    def __init__(
+        self,
+        registry,
+        *,
+        extractor=None,
+        analyzer=None,
+        answerer=None,
+        export_runtime=None,
+    ):
         self.registry = registry
         self.session = registry.dao.session
         self.extractor = extractor or self._extract
         self.analyzer = analyzer
         self.answerer = answerer
+        self.export_runtime = export_runtime
         self._question_slots = threading.BoundedSemaphore(2)
         self._lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(4)
@@ -49,6 +61,7 @@ class FinancialAnalysisService:
         with self.session(commit=False) as session:
             engine = session.get_bind()
         Run.__table__.create(bind=engine, checkfirst=True)
+        Export.__table__.create(bind=engine, checkfirst=True)
         # This runner is intentionally for one local server process. Completed
         # snapshots survive restart; abandoned jobs are never left running.
         with self.session() as session:
@@ -113,6 +126,122 @@ class FinancialAnalysisService:
                     raise SessionFileApiError(409, "REPORT_NOT_READY", "报告尚未完成。")
                 return json.loads(row.report_json)
             return self._public(row)
+
+    def list_runs(self, owner, page=1, page_size=10):
+        with self.session(commit=False) as session:
+            query = session.query(Run).filter_by(owner_id=owner)
+            total = query.count()
+            rows = (
+                query.order_by(Run.created_at.desc(), Run.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+            items = []
+            for row in rows:
+                item = self._public(row)
+                if row.report_json:
+                    report = json.loads(row.report_json)
+                    item.update(
+                        title=report["report"]["companyName"],
+                        fiscal_period=report["report"]["fiscalPeriod"],
+                    )
+                else:
+                    record = self.registry.get_file(
+                        owner_id=owner, session_id=row.session_id, file_id=row.file_id
+                    )
+                    item.update(
+                        title=record.display_name if record else "财报分析任务",
+                        fiscal_period=None,
+                    )
+                items.append(item)
+            return {
+                "items": items,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+
+    @staticmethod
+    def _export_public(row):
+        return {
+            key: getattr(row, key)
+            for key in [
+                "id",
+                "run_id",
+                "revision",
+                "format",
+                "file_name",
+                "created_at",
+                "size_bytes",
+                "sha256",
+            ]
+        }
+
+    def list_exports(self, owner, session_id, run_id):
+        self.get(owner, session_id, run_id)
+        with self.session(commit=False) as session:
+            # Metadata only; do not load multi-megabyte HTML bodies to list files.
+            rows = (
+                session.query(
+                    Export.id,
+                    Export.run_id,
+                    Export.revision,
+                    Export.format,
+                    Export.file_name,
+                    Export.created_at,
+                    Export.size_bytes,
+                    Export.sha256,
+                )
+                .filter_by(run_id=run_id)
+                .order_by(Export.created_at.desc(), Export.id.desc())
+                .all()
+            )
+            return [self._export_public(row) for row in rows]
+
+    def create_export(self, owner, session_id, run_id, revision, kind):
+        report = self.get(owner, session_id, run_id, report=True)
+        if report["revision"] != revision:
+            raise SessionFileApiError(
+                409, "REPORT_CHANGED", "报告已更新，请刷新后再导出。"
+            )
+        if report.get("analysis", {}).get("status") == "running":
+            raise SessionFileApiError(
+                409, "ANALYSIS_RUNNING", "模型分析仍在执行，请结束后再导出。"
+            )
+        if kind not in {"json", "html"}:
+            raise SessionFileApiError(
+                400, "EXPORT_FORMAT_INVALID", "不支持的导出格式。"
+            )
+        export_id = hashlib.sha256(f"{run_id}:{revision}:{kind}".encode()).hexdigest()
+        with self._lock:
+            with self.session() as session:
+                row = session.query(Export).filter_by(id=export_id).first()
+                if row is None:
+                    content = render_export(report, kind, self.export_runtime)
+                    encoded = content.encode("utf-8")
+                    row = Export(
+                        id=export_id,
+                        run_id=run_id,
+                        revision=revision,
+                        format=kind,
+                        file_name=f"financial-{run_id}.{kind}",
+                        created_at=now(),
+                        size_bytes=len(encoded),
+                        sha256=hashlib.sha256(encoded).hexdigest(),
+                        content=content,
+                    )
+                    session.add(row)
+                    session.flush()
+                return self._export_public(row)
+
+    def download_export(self, owner, session_id, run_id, export_id):
+        self.get(owner, session_id, run_id)
+        with self.session(commit=False) as session:
+            row = session.query(Export).filter_by(id=export_id, run_id=run_id).first()
+            if row is None:
+                raise SessionFileApiError(404, "EXPORT_NOT_FOUND", "未找到导出文件。")
+            return row.content.encode("utf-8"), self._export_public(row)
 
     def ask(self, owner, session_id, run_id, revision, question):
         report = self.get(owner, session_id, run_id, report=True)
@@ -231,6 +360,9 @@ class FinancialAnalysisService:
 
     def _work(self, owner, session_id, file_id, run_id):
         try:
+            started_at = now()
+            read_start = time.monotonic()
+            timings = {}
             self._update(run_id, status="running", stage="extract")
             opened = self.registry.open_download(
                 owner_id=owner, session_id=session_id, file_id=file_id
@@ -243,16 +375,38 @@ class FinancialAnalysisService:
                 with self.registry.materialize_local_file(
                     scope, stream, ".pdf"
                 ) as path:
+                    extract_start = time.monotonic()
+                    extract_at = now()
+                    timings["read"] = {
+                        "startedAt": started_at,
+                        "completedAt": extract_at,
+                        "elapsedMs": round((extract_start - read_start) * 1000),
+                    }
                     extracted = self.extractor(path)
+                    timings["extract"] = {
+                        "startedAt": extract_at,
+                        "completedAt": now(),
+                        "elapsedMs": round((time.monotonic() - extract_start) * 1000),
+                    }
             finally:
                 stream.close()
             if extracted.get("document", {}).get("sha256") != record.sha256:
                 raise ValueError("解析文件与上传文件不一致，任务已停止。")
             self._update(run_id, stage="calculate")
+            calculate_start = time.monotonic()
+            calculate_at = now()
             completed_at = now()
             report = build_report(
                 extracted, {"id": run_id, "completed_at": completed_at}, record
             )
+            timings["calculate"] = {
+                "startedAt": calculate_at,
+                "completedAt": now(),
+                "elapsedMs": round((time.monotonic() - calculate_start) * 1000),
+            }
+            report["report"]["run"]["startedAt"] = started_at
+            for step in report["steps"]:
+                step.update(timings.get(step["id"], {}))
             analyzer = self.analyzer
             if analyzer is not None:
                 report["analysis"] = {
@@ -273,6 +427,7 @@ class FinancialAnalysisService:
                         "detail": "财务数据已保存，正在基于引用生成分析。",
                         "status": "running",
                         "capability": "existing",
+                        "startedAt": report["analysis"]["startedAt"],
                     }
                 )
                 report["agent"]["groups"].append(
@@ -284,14 +439,27 @@ class FinancialAnalysisService:
                     }
                 )
             self._update(run_id, stage="save")
+            save_start = time.monotonic()
+            save_at = now()
             # Status and snapshot become visible in the same transaction.
-            self._update(
-                run_id,
-                status="completed",
-                stage="analyze" if analyzer is not None else "completed",
-                completed_at=completed_at,
-                report_json=json.dumps(report, ensure_ascii=False, allow_nan=False),
-            )
+            with self.session() as session:
+                row = session.query(Run).filter_by(id=run_id).one()
+                row.status = "completed"
+                row.stage = "analyze" if analyzer is not None else "completed"
+                row.completed_at, row.updated_at = completed_at, now()
+                row.report_json = json.dumps(
+                    report, ensure_ascii=False, allow_nan=False
+                )
+                session.flush()
+                # Measure serialization/DB write, excluding transaction commit.
+                next(step for step in report["steps"] if step["id"] == "save").update(
+                    startedAt=save_at,
+                    completedAt=now(),
+                    elapsedMs=round((time.monotonic() - save_start) * 1000),
+                )
+                row.report_json = json.dumps(
+                    report, ensure_ascii=False, allow_nan=False
+                )
             if analyzer is not None:
                 self._analyze(run_id, report, analyzer, owner, session_id)
         except subprocess.TimeoutExpired:
@@ -324,6 +492,20 @@ class FinancialAnalysisService:
         )
         report["revision"] = report["report"]["run"]["id"] + "-analysis-final"
         step = next(s for s in report["steps"] if s["id"] == "analyze")
+        stamp = report["analysis"]["completedAt"]
+        step["completedAt"] = stamp
+        if report["analysis"].get("startedAt"):
+            step["startedAt"] = report["analysis"]["startedAt"]
+            step["elapsedMs"] = max(
+                0,
+                round(
+                    (
+                        datetime.fromisoformat(stamp)
+                        - datetime.fromisoformat(step["startedAt"])
+                    ).total_seconds()
+                    * 1000
+                ),
+            )
         step["status"] = "failed" if status == "failed" else "completed"
         step["detail"] = error or (
             f"已保留 {len(report['findings'])} 条引用校验通过的分析；"

@@ -1,6 +1,6 @@
 """Financial run and immutable report snapshot in the existing metadata DB."""
 
-from sqlalchemy import Column, Index, String, Text
+from sqlalchemy import Column, Index, Integer, String, Text
 from sqlalchemy.dialects.mysql import LONGTEXT
 
 from dbgpt.storage.metadata import Model
@@ -21,3 +21,19 @@ class FinancialRunEntity(Model):
     completed_at = Column(String(40), nullable=True)
     error = Column(Text, nullable=True)
     report_json = Column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True)
+
+
+class FinancialExportEntity(Model):
+    """Immutable generated files; ownership is inherited from the parent run."""
+
+    __tablename__ = "dbgpt_financial_analysis_export"
+    __table_args__ = (Index("idx_financial_export_run", "run_id", "revision"),)
+    id = Column(String(64), primary_key=True)
+    run_id = Column(String(36), nullable=False)
+    revision = Column(String(255), nullable=False)
+    format = Column(String(8), nullable=False)
+    file_name = Column(String(255), nullable=False)
+    created_at = Column(String(40), nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    content = Column(Text().with_variant(LONGTEXT(), "mysql"), nullable=False)
