@@ -3,10 +3,23 @@ import { Alert, Button, Card, Space, Spin, Typography } from 'antd';
 import { useRouter } from 'next/router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import FinancialAnalysisPage from './FinancialAnalysisPage';
+import ReportHistory from './ReportHistory';
 import type { FinancialRunStatus } from './api';
-import { askQuestion, createRun, downloadSource, getReport, getRun, getSourcePage, requestError } from './api';
+import {
+  askQuestion,
+  createExport,
+  createRun,
+  downloadExport,
+  downloadSource,
+  getReport,
+  getRun,
+  getSourcePage,
+  listExports,
+  listRuns,
+  requestError,
+} from './api';
 import { mockReportData } from './mock-report';
-import type { ReportData, ReportQuestionAccess, SourcePreviewAccess } from './types';
+import type { ReportData, ReportExportAccess, ReportQuestionAccess, SourcePreviewAccess } from './types';
 
 const stageLabels: Record<string, string> = {
   queued: '等待分析',
@@ -40,6 +53,20 @@ const FinancialAnalysisRoute: React.FC = () => {
   );
   const questionAccess = useMemo<ReportQuestionAccess>(
     () => ({ ask: (question, revision, signal) => askQuestion(sessionId, runId, revision, question, signal) }),
+    [sessionId, runId],
+  );
+  const exportAccess = useMemo<ReportExportAccess>(
+    () => ({
+      list: signal => listExports(sessionId, runId, signal),
+      create: async (format, revision) => {
+        try {
+          return await createExport(sessionId, runId, revision, format);
+        } catch (cause) {
+          throw new Error(requestError(cause));
+        }
+      },
+      download: file => downloadExport(sessionId, runId, file),
+    }),
     [sessionId, runId],
   );
 
@@ -120,6 +147,7 @@ const FinancialAnalysisRoute: React.FC = () => {
         onNewReport={startNew}
         sourceAccess={sourceAccess}
         questionAccess={questionAccess}
+        exportAccess={exportAccess}
         analysisActions={{
           retry: () => {
             if (activeRun) void submit(activeRun);
@@ -193,6 +221,16 @@ const FinancialAnalysisRoute: React.FC = () => {
               <Button type='link' onClick={() => void router.push('/financial-analysis?demo=1')}>
                 查看原有演示
               </Button>
+              <ReportHistory
+                load={listRuns}
+                onOpen={previous => {
+                  attempt.current = null;
+                  void router.push({
+                    pathname: '/financial-analysis',
+                    query: { run_id: previous.id, session_id: previous.session_id },
+                  });
+                }}
+              />
             </>
           )}
           {error && (

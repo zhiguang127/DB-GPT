@@ -51,3 +51,16 @@ export function periodRange(points: Array<{ year: string }>) {
 }
 
 export const runStatusLabels = { pending: 'Pending', running: 'Running', completed: 'Completed', failed: 'Failed' };
+
+export function reportRunState(data: ReportData) {
+  if (data.mode === 'report' && data.analysis) {
+    if (data.analysis.status === 'running') return { label: '分析中', working: true, complete: false };
+    if (data.analysis.status === 'partial') return { label: '部分分析', working: false, complete: false };
+    if (data.analysis.status === 'failed') return { label: '数据可用 · 分析未完成', working: false, complete: false };
+  }
+  return {
+    label: runStatusLabels[data.report.run.status],
+    working: data.report.run.status === 'running',
+    complete: data.report.run.status === 'completed',
+  };
+}

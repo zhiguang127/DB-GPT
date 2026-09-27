@@ -49,6 +49,9 @@ const ExecutionProcessPanel: React.FC<{
         </div>
         <h2>{activeStep.title}</h2>
         <p>{activeStep.detail}</p>
+        {data.mode === 'report' && activeStep.elapsedMs !== undefined && (
+          <p className={styles.meta}>耗时 {(activeStep.elapsedMs / 1000).toFixed(2)} 秒</p>
+        )}
         {analysis && analysisActions && (
           <>
             {analysisActions.error && (

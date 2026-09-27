@@ -1,6 +1,6 @@
 import type { ApiResponse } from '@/client/api';
 import { GET, POST } from '@/client/api';
-import type { ReportData, ReportQuestionAnswer, SourceDocument } from './types';
+import type { FinancialExport, ReportData, ReportQuestionAnswer, SourceDocument } from './types';
 
 export interface FinancialRunStatus {
   id: string;
@@ -11,8 +11,47 @@ export interface FinancialRunStatus {
   error: string | null;
   report_ready?: boolean;
   analysis_status?: 'running' | 'completed' | 'partial' | 'failed' | null;
+  created_at: string;
+  completed_at?: string | null;
+  title?: string;
+  fiscal_period?: string | null;
+}
+export interface FinancialRunHistory {
+  items: FinancialRunStatus[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 const base = '/api/v1/financial-analysis/runs';
+export async function listRuns(page: number, signal: AbortSignal) {
+  return unwrap(await GET<unknown, FinancialRunHistory>(base, { page, page_size: 10 }, { signal }));
+}
+export async function listExports(sessionId: string, runId: string, signal: AbortSignal) {
+  return unwrap(
+    await GET<unknown, FinancialExport[]>(
+      `${base}/${encodeURIComponent(runId)}/exports`,
+      { session_id: sessionId },
+      { signal },
+    ),
+  );
+}
+export async function createExport(sessionId: string, runId: string, revision: string, format: 'json' | 'html') {
+  return unwrap(
+    await POST<unknown, FinancialExport>(`${base}/${encodeURIComponent(runId)}/exports`, {
+      session_id: sessionId,
+      revision,
+      format,
+    }),
+  );
+}
+export async function downloadExport(sessionId: string, runId: string, file: FinancialExport) {
+  const blob = await sourceBlob(
+    sessionId,
+    `${base}/${encodeURIComponent(runId)}/exports/${encodeURIComponent(file.id)}`,
+    file.format === 'json' ? 'application/json' : 'text/html',
+  );
+  saveBlob(blob, file.file_name);
+}
 function unwrap<T>(response: ApiResponse<T>): T {
   if (!response.data.success) throw new Error(response.data.err_msg || '财报请求失败');
   return response.data.data;
@@ -73,7 +112,7 @@ async function sourceBlob(sessionId: string, path: string, type: string, signal?
   try {
     const response = await GET(path, { session_id: sessionId }, { responseType: 'blob', signal });
     const blob = response.data as unknown as Blob;
-    if (!(blob instanceof Blob) || blob.type !== type) throw new Error('来源文件响应格式错误');
+    if (!(blob instanceof Blob) || blob.type.split(';')[0] !== type) throw new Error('文件响应格式错误');
     return blob;
   } catch (cause) {
     const data = (cause as { response?: { data?: unknown } })?.response?.data;
@@ -103,11 +142,15 @@ export const getSourcePage = (
 
 export async function downloadSource(sessionId: string, runId: string, source: SourceDocument) {
   const blob = await sourceBlob(sessionId, `${sourcePath(runId, source.id)}/download`, 'application/pdf');
+  saveBlob(blob, source.fileName);
+}
+
+function saveBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   try {
     anchor.href = url;
-    anchor.download = source.fileName;
+    anchor.download = fileName;
     document.body.appendChild(anchor);
     anchor.click();
   } finally {

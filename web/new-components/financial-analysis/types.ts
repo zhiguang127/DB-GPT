@@ -12,6 +12,7 @@ export interface AnalysisRun {
   status: 'pending' | 'running' | 'completed' | 'failed';
   evidenceCoverage: number;
   completedAt?: string;
+  startedAt?: string;
 }
 
 export interface FinancialReport {
@@ -58,6 +59,23 @@ export interface EvidenceExcerpt {
 export interface SourcePreviewAccess {
   loadPage: (documentId: string, page: number, signal: AbortSignal) => Promise<Blob>;
   download: (document: SourceDocument) => Promise<void>;
+}
+
+export interface FinancialExport {
+  id: string;
+  run_id: string;
+  revision: string;
+  format: 'json' | 'html';
+  file_name: string;
+  size_bytes: number;
+  created_at: string;
+  sha256: string;
+}
+
+export interface ReportExportAccess {
+  list: (signal: AbortSignal) => Promise<FinancialExport[]>;
+  create: (format: 'json' | 'html', revision: string) => Promise<FinancialExport>;
+  download: (file: FinancialExport) => Promise<void>;
 }
 
 export interface FinancialFact {
@@ -124,6 +142,9 @@ export interface FinancialMetric {
 }
 
 export interface AgentExecutionStep {
+  startedAt?: string;
+  completedAt?: string;
+  elapsedMs?: number;
   id: string;
   order: number;
   type: 'skill' | 'read' | 'python' | 'analysis' | 'html';

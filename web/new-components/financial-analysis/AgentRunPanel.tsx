@@ -2,7 +2,7 @@ import type { ArtifactItem, ExecutionStep, ThinkingSection } from '@/new-compone
 import dynamic from 'next/dynamic';
 import React, { useMemo } from 'react';
 import { useReportData } from './ReportDataContext';
-import { isDefined } from './report-data';
+import { isDefined, reportRunState } from './report-data';
 import { AgentExecutionStep } from './types';
 
 const ManusLeftPanel = dynamic(() => import('@/new-components/chat/content/ManusLeftPanel'), {
@@ -73,7 +73,7 @@ const AgentRunPanel: React.FC<AgentRunPanelProps> = ({ activeStepId, onStepSelec
       sections={sections}
       activeStepId={activeStepId}
       onStepClick={stepId => onStepSelect(stepId)}
-      isWorking={data.report.run.status === 'running'}
+      isWorking={reportRunState(data).working}
       userQuery={data.agent.userQuery}
       attachedFiles={inputFiles}
       attachedSkill={{ name: data.report.run.skillName, id: data.report.run.skillName }}

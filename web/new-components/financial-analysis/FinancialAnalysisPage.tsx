@@ -21,11 +21,19 @@ import AskDbGPTDock from './AskDbGPTDock';
 import EvidencePanel from './EvidencePanel';
 import ExecutionProcessPanel, { AnalysisActions } from './ExecutionProcessPanel';
 import { ReportDataProvider, useReportData } from './ReportDataContext';
+import ReportExports from './ReportExports';
 import { BalanceTab, CashFlowTab, OverviewTab, ProfitabilityTab, StatementsTab } from './ReportSections';
 import SourcePreviewPanel from './SourcePreviewPanel';
 import styles from './financial-analysis.module.css';
-import { runStatusLabels } from './report-data';
-import { EvidenceExcerpt, EvidenceSelection, ReportData, ReportQuestionAccess, SourcePreviewAccess } from './types';
+import { reportRunState } from './report-data';
+import {
+  EvidenceExcerpt,
+  EvidenceSelection,
+  ReportData,
+  ReportExportAccess,
+  ReportQuestionAccess,
+  SourcePreviewAccess,
+} from './types';
 
 type WorkspaceTab = 'report' | 'execution' | 'files' | 'skill' | 'evidence';
 const workspaceTabs: Array<{ key: WorkspaceTab; label: string; icon: React.ReactNode }> = [
@@ -58,10 +66,11 @@ const ArtifactContext: React.FC = () => {
   );
 };
 
-const FilesPanel: React.FC<{ onOpenSource: (evidence: EvidenceExcerpt) => void; onOpenArtifact: () => void }> = ({
-  onOpenSource,
-  onOpenArtifact,
-}) => {
+const FilesPanel: React.FC<{
+  onOpenSource: (evidence: EvidenceExcerpt) => void;
+  onOpenArtifact: () => void;
+  exportAccess?: ReportExportAccess;
+}> = ({ onOpenSource, onOpenArtifact, exportAccess }) => {
   const { data } = useReportData();
   const files = [
     ...data.documents.map(document => {
@@ -84,6 +93,7 @@ const FilesPanel: React.FC<{ onOpenSource: (evidence: EvidenceExcerpt) => void; 
     <div className={styles.utilityPanel}>
       <h2>任务文件</h2>
       <p className={styles.sectionDescription}>本轮输入资料与分析交付物</p>
+      {data.mode === 'report' && exportAccess && <ReportExports access={exportAccess} />}
       {!files.length && <p className={styles.meta}>暂无文件</p>}
       {files.map(file => (
         <div className={styles.fileRow} key={file.name}>
@@ -137,8 +147,10 @@ const FinancialAnalysisWorkspace: React.FC<{
   sourceAccess?: SourcePreviewAccess;
   analysisActions?: AnalysisActions;
   questionAccess?: ReportQuestionAccess;
-}> = ({ onNewReport, sourceAccess, analysisActions, questionAccess }) => {
+  exportAccess?: ReportExportAccess;
+}> = ({ onNewReport, sourceAccess, analysisActions, questionAccess, exportAccess }) => {
   const { data, sourceDocumentMap } = useReportData();
+  const runState = reportRunState(data);
   const router = useRouter();
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('report');
   const [financialTab, setFinancialTab] = useState('overview');
@@ -190,7 +202,7 @@ const FinancialAnalysisWorkspace: React.FC<{
           </button>
         )}
         <span className={styles.completed}>
-          {data.report.run.status === 'completed' && <CheckCircleFilled />} {runStatusLabels[data.report.run.status]}
+          {runState.complete && <CheckCircleFilled />} {runState.label}
         </span>
       </header>
       <div className={styles.columns} data-agent-collapsed={agentCollapsed}>
@@ -272,7 +284,11 @@ const FinancialAnalysisWorkspace: React.FC<{
               />
             )}
             {workspaceTab === 'files' && (
-              <FilesPanel onOpenSource={openSource} onOpenArtifact={() => switchWorkspace('report')} />
+              <FilesPanel
+                onOpenSource={openSource}
+                onOpenArtifact={() => switchWorkspace('report')}
+                exportAccess={exportAccess}
+              />
             )}
             {workspaceTab === 'skill' && <SkillPanel />}
             {workspaceTab === 'evidence' && (
@@ -317,13 +333,15 @@ const FinancialAnalysisPage: React.FC<{
   sourceAccess?: SourcePreviewAccess;
   analysisActions?: AnalysisActions;
   questionAccess?: ReportQuestionAccess;
-}> = ({ data, onNewReport, sourceAccess, analysisActions, questionAccess }) => (
+  exportAccess?: ReportExportAccess;
+}> = ({ data, onNewReport, sourceAccess, analysisActions, questionAccess, exportAccess }) => (
   <ReportDataProvider key={`${data.report.id}:${data.report.run.id}:${data.revision}`} data={data}>
     <FinancialAnalysisWorkspace
       onNewReport={onNewReport}
       sourceAccess={sourceAccess}
       analysisActions={analysisActions}
       questionAccess={questionAccess}
+      exportAccess={exportAccess}
     />
   </ReportDataProvider>
 );

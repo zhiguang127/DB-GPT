@@ -74,8 +74,9 @@ for (const [status, expected] of Object.entries({
   let retried = false, refreshed = false;
   const actions = { retry: () => { retried = true; }, refresh: () => { refreshed = true; }, busy: false, error: '网络中断' };
   // Analysis state/actions must not change the report surface or add a banner.
-  assert.equal(renderToStaticMarkup(React.createElement(Page, { data: report, analysisActions: actions })),
-    renderToStaticMarkup(React.createElement(Page, { data: analysisBase })));
+  const withoutHeader = markup => markup.replace(/<header[\s\S]*?<\/header>/, '');
+  assert.equal(withoutHeader(renderToStaticMarkup(React.createElement(Page, { data: report, analysisActions: actions }))),
+    withoutHeader(renderToStaticMarkup(React.createElement(Page, { data: analysisBase }))));
   captures.buttons.length = 0;
   const panel = render(Execution, report, { activeStepId: 'analyze', onStepSelect: noop, analysisActions: actions });
   assert.ok(panel.includes(expected));
