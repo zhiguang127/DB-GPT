@@ -25,7 +25,7 @@ import { BalanceTab, CashFlowTab, OverviewTab, ProfitabilityTab, StatementsTab }
 import SourcePreviewPanel from './SourcePreviewPanel';
 import styles from './financial-analysis.module.css';
 import { runStatusLabels } from './report-data';
-import { EvidenceExcerpt, EvidenceSelection, ReportData, SourcePreviewAccess } from './types';
+import { EvidenceExcerpt, EvidenceSelection, ReportData, ReportQuestionAccess, SourcePreviewAccess } from './types';
 
 type WorkspaceTab = 'report' | 'execution' | 'files' | 'skill' | 'evidence';
 const workspaceTabs: Array<{ key: WorkspaceTab; label: string; icon: React.ReactNode }> = [
@@ -38,7 +38,7 @@ const workspaceTabs: Array<{ key: WorkspaceTab; label: string; icon: React.React
 const capabilityNote = (mode: ReportData['mode']) =>
   mode === 'demo'
     ? '当前页面使用本地示例数据。结构化证据链、来源预览和问答为交互演示，未连接 Skill 后端或调用模型。'
-    : '当前页面展示所选报告数据。缺少的指标与来源会明确标记，追问服务尚未接入。';
+    : '当前页面展示所选报告数据。追问仅依据当前报告，缺少的指标与来源会明确标记。';
 
 const ArtifactContext: React.FC = () => {
   const {
@@ -136,7 +136,8 @@ const FinancialAnalysisWorkspace: React.FC<{
   onNewReport?: () => void;
   sourceAccess?: SourcePreviewAccess;
   analysisActions?: AnalysisActions;
-}> = ({ onNewReport, sourceAccess, analysisActions }) => {
+  questionAccess?: ReportQuestionAccess;
+}> = ({ onNewReport, sourceAccess, analysisActions, questionAccess }) => {
   const { data, sourceDocumentMap } = useReportData();
   const router = useRouter();
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('report');
@@ -205,7 +206,7 @@ const FinancialAnalysisWorkspace: React.FC<{
               onOpenFiles={() => switchWorkspace('files')}
             />
           </div>
-          <AskDbGPTDock onOpenEvidence={openEvidence} />
+          <AskDbGPTDock onOpenEvidence={openEvidence} questionAccess={questionAccess} />
         </section>
         <section className={styles.computer} aria-label='DB-GPT Computer'>
           <div className={styles.computerHeader}>
@@ -315,12 +316,14 @@ const FinancialAnalysisPage: React.FC<{
   onNewReport?: () => void;
   sourceAccess?: SourcePreviewAccess;
   analysisActions?: AnalysisActions;
-}> = ({ data, onNewReport, sourceAccess, analysisActions }) => (
+  questionAccess?: ReportQuestionAccess;
+}> = ({ data, onNewReport, sourceAccess, analysisActions, questionAccess }) => (
   <ReportDataProvider key={`${data.report.id}:${data.report.run.id}:${data.revision}`} data={data}>
     <FinancialAnalysisWorkspace
       onNewReport={onNewReport}
       sourceAccess={sourceAccess}
       analysisActions={analysisActions}
+      questionAccess={questionAccess}
     />
   </ReportDataProvider>
 );

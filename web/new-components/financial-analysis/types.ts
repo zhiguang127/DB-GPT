@@ -157,6 +157,25 @@ export interface EvidenceSelection {
 
 export type OpenEvidence = (selection: EvidenceSelection) => void;
 
+export interface ReportQuestionAnswer {
+  runId: string;
+  revision: string;
+  question: string;
+  answer: string;
+  modelName: string;
+  factIds: string[];
+  calculationIds: string[];
+  evidenceExcerptIds: string[];
+  citations: Array<Pick<EvidenceSelection, 'factId' | 'calculationId'>>;
+  insufficientEvidence: boolean;
+  answerMode: 'validated' | 'references_only' | 'insufficient';
+  supportStatus: 'partial' | 'unresolved';
+}
+
+export interface ReportQuestionAccess {
+  ask: (question: string, revision: string, signal: AbortSignal) => Promise<ReportQuestionAnswer>;
+}
+
 export interface ReportSectionData {
   title?: string;
   description?: string;
@@ -224,6 +243,6 @@ export interface ReportData {
     summary: string;
     groups: Array<{ id: string; title: string; content: string; stepIds: string[] }>;
   };
-  /** Canned answers belong exclusively to the demo, until the question API exists. */
+  /** Canned answers belong exclusively to the demo. */
   demoQuestions?: Array<MockAnswer & { label: string; keywords: string[]; priority: number }>;
 }

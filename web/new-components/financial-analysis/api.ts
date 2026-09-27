@@ -1,6 +1,6 @@
 import type { ApiResponse } from '@/client/api';
 import { GET, POST } from '@/client/api';
-import type { ReportData, SourceDocument } from './types';
+import type { ReportData, ReportQuestionAnswer, SourceDocument } from './types';
 
 export interface FinancialRunStatus {
   id: string;
@@ -47,6 +47,26 @@ export async function getReport(sessionId: string, runId: string, signal?: Abort
 export function requestError(error: unknown): string {
   const value = error as { response?: { data?: { err_msg?: string } }; message?: string };
   return value?.response?.data?.err_msg || value?.message || '请求失败，请重试';
+}
+
+export async function askQuestion(
+  sessionId: string,
+  runId: string,
+  revision: string,
+  question: string,
+  signal: AbortSignal,
+) {
+  try {
+    return unwrap(
+      await POST<unknown, ReportQuestionAnswer>(
+        `${base}/${encodeURIComponent(runId)}/questions`,
+        { session_id: sessionId, revision, question },
+        { signal, timeout: 70000 },
+      ),
+    );
+  } catch (cause) {
+    throw new Error(requestError(cause));
+  }
 }
 
 async function sourceBlob(sessionId: string, path: string, type: string, signal?: AbortSignal): Promise<Blob> {

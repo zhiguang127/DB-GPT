@@ -4,9 +4,9 @@ import { useRouter } from 'next/router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import FinancialAnalysisPage from './FinancialAnalysisPage';
 import type { FinancialRunStatus } from './api';
-import { createRun, downloadSource, getReport, getRun, getSourcePage, requestError } from './api';
+import { askQuestion, createRun, downloadSource, getReport, getRun, getSourcePage, requestError } from './api';
 import { mockReportData } from './mock-report';
-import type { ReportData, SourcePreviewAccess } from './types';
+import type { ReportData, ReportQuestionAccess, SourcePreviewAccess } from './types';
 
 const stageLabels: Record<string, string> = {
   queued: '等待分析',
@@ -36,6 +36,10 @@ const FinancialAnalysisRoute: React.FC = () => {
       loadPage: (documentId, page, signal) => getSourcePage(sessionId, runId, documentId, page, signal),
       download: document => downloadSource(sessionId, runId, document),
     }),
+    [sessionId, runId],
+  );
+  const questionAccess = useMemo<ReportQuestionAccess>(
+    () => ({ ask: (question, revision, signal) => askQuestion(sessionId, runId, revision, question, signal) }),
     [sessionId, runId],
   );
 
@@ -115,6 +119,7 @@ const FinancialAnalysisRoute: React.FC = () => {
         data={data}
         onNewReport={startNew}
         sourceAccess={sourceAccess}
+        questionAccess={questionAccess}
         analysisActions={{
           retry: () => {
             if (activeRun) void submit(activeRun);
