@@ -38,6 +38,11 @@ def main():
     )
     parser.add_argument("--pdf-dir", type=Path, default=ROOT / "testpdf")
     parser.add_argument(
+        "--baseline",
+        type=Path,
+        default=ROOT / "skills/financial-report-analyzer/tests/sample-baselines.json",
+    )
+    parser.add_argument(
         "--output-dir", type=Path, default=ROOT / ".work/financial-analysis/round4"
     )
     parser.add_argument(
@@ -46,11 +51,7 @@ def main():
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     logging.getLogger("pdfminer").setLevel(logging.ERROR)
-    baseline = json.loads(
-        (
-            ROOT / "skills/financial-report-analyzer/tests/sample-baselines.json"
-        ).read_text(encoding="utf-8")
-    )
+    baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
     files = {
         hashlib.sha256(p.read_bytes()).hexdigest(): p
         for p in args.pdf_dir.glob("*.pdf")
@@ -128,6 +129,36 @@ def main():
                     c["result"] is not None and isinstance(c["result"], str)
                     for c in report["calculations"]
                 )
+                if sample.get("openingBalances"):
+                    audit = report["extractionAudit"]["observations"]
+                    for code, expected in sample["openingBalances"]["values"].items():
+                        item = next(
+                            c
+                            for c in audit
+                            if c["metricCode"] == code
+                            and c["sourcePeriod"]["role"] == "opening"
+                        )
+                        assert Decimal(item["normalizedValue"]) == Decimal(expected)
+                    for year, codes in sample.get("expectedMissing", {}).items():
+                        for code in codes:
+                            item = next(
+                                f
+                                for f in report["facts"]
+                                if f["metricCode"] == code and f["fiscalPeriod"] == year
+                            )
+                            assert item["normalizedValue"] is None
+                    exported = client.post(
+                        f"{BASE}/{run_id}/exports",
+                        headers=headers,
+                        json=dict(params, revision=report["revision"], format="json"),
+                    )
+                    assert exported.status_code == 200, exported.text
+                    content = client.get(
+                        f"{BASE}/{run_id}/exports/{exported.json()['data']['id']}",
+                        headers=headers,
+                        params=params,
+                    )
+                    assert content.status_code == 200 and content.json() == report
                 assert (
                     client.get(report_url, headers=headers, params=params).json()[
                         "data"
@@ -175,7 +206,10 @@ def main():
     (args.output_dir / "runs.json").write_text(
         json.dumps(reviewed, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print("PASS two PDFs, 24 calculations each, repeated reads and scope isolation")
+    print(
+        f"PASS {len(reviewed)} PDFs, 24 calculations each, "
+        "repeated reads and scope isolation"
+    )
 
 
 if __name__ == "__main__":

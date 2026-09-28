@@ -148,6 +148,19 @@ def build_report(extracted, run, file_record):
         "documents": [document],
         "facts": facts,
         "evidence": evidence,
+        # Keep alternate bases for audit/JSON export, outside the canonical facts
+        # and model context. Old snapshots need no migration or regeneration.
+        "extractionAudit": {
+            "observations": deepcopy(
+                [
+                    item
+                    for item in extracted.get("sourceObservations", [])
+                    if item["sourcePeriod"]["role"] == "opening"
+                    or item["sourcePeriod"]["adjustment"] == "before"
+                ]
+            ),
+            "tableIssues": deepcopy(extracted.get("_meta", {}).get("tableIssues", [])),
+        },
         "calculations": calculations,
         "metrics": metrics,
         "findings": [],

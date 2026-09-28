@@ -6,7 +6,7 @@ from dbgpt_serve.financial_analysis.report import build_report
 from .test_calculations import expanded_facts
 
 
-def build(data):
+def build(data, **extra):
     return build_report(
         {
             "report_year": "2024",
@@ -14,10 +14,38 @@ def build(data):
             "facts": data,
             "document": {"id": "doc", "pageCount": 10},
             "evidence": [{"id": "E1", "sourceDocumentId": "doc", "page": 3}],
+            **extra,
         },
         {"id": "run", "completed_at": "2026-09-26T00:00:00Z"},
         SimpleNamespace(display_name="fixture.pdf", file_id="file", size_bytes=100),
     )
+
+
+def test_opening_and_pre_adjustment_observations_survive_without_becoming_inputs():
+    from dbgpt_serve.financial_analysis.analysis import model_context
+
+    values = [
+        {
+            "normalizedValue": "999999",
+            "sourcePeriod": {"role": "opening", "adjustment": "unspecified"},
+        },
+        {
+            "normalizedValue": "888888",
+            "sourcePeriod": {"role": "closing", "adjustment": "before"},
+        },
+        {
+            "normalizedValue": "777777",
+            "sourcePeriod": {"role": "closing", "adjustment": "after"},
+        },
+    ]
+    facts = expanded_facts()
+    report = build(facts, sourceObservations=values)
+    assert report["extractionAudit"]["observations"] == values[:2]
+    assert report["calculations"] == build(facts)["calculations"]
+    report["evidence"][0]["snippet"] = "财务报表原文"
+    assert "extractionAudit" not in model_context(report)
+    report["extractionAudit"]["observations"][0]["normalizedValue"] = "changed"
+    assert values[0]["normalizedValue"] == "999999"
 
 
 def test_report_rates_link_both_years_and_keep_negative_expenses():
