@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from dbgpt_serve.session_file.api.endpoints import SessionFileApiError
 from dbgpt_serve.session_file.domain import FileScope
@@ -295,7 +296,7 @@ class FinancialAnalysisService:
         finally:
             self._question_slots.release()
 
-    def create(self, owner, session_id, file_id, run_id):
+    def create(self, owner, session_id, file_id, run_id, *, agent_model=None):
         with self._lock:
             # Idempotent request IDs prevent a retry/double click from queuing
             # the same file twice. A new ID explicitly creates another attempt.
@@ -340,7 +341,9 @@ class FinancialAnalysisService:
                     session.add(row)
                     session.flush()
                     result = self._public(row)
-                self._executor.submit(self._work, owner, session_id, file_id, run_id)
+                self._executor.submit(
+                    self._work, owner, session_id, file_id, run_id, agent_model
+                )
             except Exception:
                 self._slots.release()
                 self._update(
@@ -358,7 +361,7 @@ class FinancialAnalysisService:
                 dict(values, updated_at=now()), synchronize_session=False
             )
 
-    def _work(self, owner, session_id, file_id, run_id):
+    def _work(self, owner, session_id, file_id, run_id, agent_model=None):
         try:
             started_at = now()
             read_start = time.monotonic()
@@ -407,7 +410,11 @@ class FinancialAnalysisService:
             report["report"]["run"]["startedAt"] = started_at
             for step in report["steps"]:
                 step.update(timings.get(step["id"], {}))
-            analyzer = self.analyzer
+            # Agent turns reuse deterministic extraction/calculation, but the
+            # conversational agent supplies findings through publish_agent_report.
+            analyzer = (
+                SimpleNamespace(model=agent_model) if agent_model else self.analyzer
+            )
             if analyzer is not None:
                 report["analysis"] = {
                     "status": "running",
@@ -438,6 +445,15 @@ class FinancialAnalysisService:
                         "content": "基于已保存事实和计算，生成并校验引用。",
                     }
                 )
+                if agent_model:
+                    report["analysis"].update(status="partial", driver="agent")
+                    report["steps"][-1].update(
+                        status="pending",
+                        detail="财务数据已就绪，等待当前智能体提交分析。",
+                    )
+                    report["agent"]["summary"] = (
+                        "财务数据已保存，智能体尚未提交分析结论。"
+                    )
             self._update(run_id, stage="save")
             save_start = time.monotonic()
             save_at = now()
@@ -445,7 +461,11 @@ class FinancialAnalysisService:
             with self.session() as session:
                 row = session.query(Run).filter_by(id=run_id).one()
                 row.status = "completed"
-                row.stage = "analyze" if analyzer is not None else "completed"
+                row.stage = (
+                    "analyze"
+                    if analyzer is not None and not agent_model
+                    else "completed"
+                )
                 row.completed_at, row.updated_at = completed_at, now()
                 row.report_json = json.dumps(
                     report, ensure_ascii=False, allow_nan=False
@@ -460,7 +480,7 @@ class FinancialAnalysisService:
                 row.report_json = json.dumps(
                     report, ensure_ascii=False, allow_nan=False
                 )
-            if analyzer is not None:
+            if analyzer is not None and not agent_model:
                 self._analyze(run_id, report, analyzer, owner, session_id)
         except subprocess.TimeoutExpired:
             self._update(
@@ -512,6 +532,61 @@ class FinancialAnalysisService:
             f"{rejected} 条未通过校验。结论仍需人工核对。"
         )
         report["agent"]["summary"] = "财务事实、计算和原文已保存。\n\n" + step["detail"]
+
+    def publish_agent_report(self, owner, session_id, run_id, revision, findings):
+        """Validate the current agent's conclusions against its saved snapshot.
+
+        Publication is one-shot per run. Exports of the initial data revision
+        remain immutable, and a second turn cannot overwrite a published report.
+        """
+        with self._lock:
+            report = self.get(owner, session_id, run_id, report=True)
+            analysis = report.get("analysis", {})
+            if (
+                report["revision"] != revision
+                or analysis.get("driver") != "agent"
+                or analysis.get("completedAt") is not None
+            ):
+                raise SessionFileApiError(
+                    409, "REPORT_CHANGED", "报告已更新，请重新读取。"
+                )
+            if findings == []:
+                accepted, rejected = [], 0
+            else:
+                accepted, rejected = validate_findings(
+                    json.dumps({"findings": findings}, ensure_ascii=False), report
+                )
+            report = apply_findings(report, accepted)
+            complete = not rejected and {f["sectionKey"] for f in accepted} == set(
+                SECTIONS
+            )
+            self._finish_report_analysis(
+                report, "completed" if complete else "partial", rejected=rejected
+            )
+            self._update(
+                run_id,
+                stage="completed",
+                report_json=json.dumps(report, ensure_ascii=False, allow_nan=False),
+            )
+            return report
+
+    def latest_agent_report(self, owner, session_id):
+        """Find a report only within the authenticated conversation."""
+        with self.session(commit=False) as session:
+            rows = (
+                session.query(Run)
+                .filter_by(owner_id=owner, session_id=session_id)
+                .order_by(Run.created_at.desc())
+                .all()
+            )
+            for row in rows:
+                if row.report_json:
+                    report = json.loads(row.report_json)
+                    if report.get("analysis", {}).get("driver") == "agent":
+                        return report
+        raise SessionFileApiError(
+            404, "REPORT_NOT_FOUND", "当前对话还没有财报分析结果。"
+        )
 
     def _analyze(self, run_id, report, analyzer, owner, session_id):
         # Catch model/validation failures here, separately from data processing.

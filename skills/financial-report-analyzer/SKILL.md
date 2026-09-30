@@ -1,110 +1,24 @@
 ---
 name: financial-report-analyzer
-description: 专门用于上市公司财报（如年度报告、季度报告）的深度分析。该技能能够自动提取关键财务指标，计算核心财务比率，生成可视化图表，并结合行业背景生成专业的财务分析报告。
+description: 在当前智能体对话中分析中文上市公司文本型年度报告 PDF。提取真实财务事实，执行确定性计算，由当前智能体撰写带引用的结论，并用固定财报组件展示报告、来源和下载。
 ---
 
-# 财报分析技能 (Financial Report Analyzer)
+# 财报分析技能
 
-本技能旨在帮助 DB-GPT 系统化地分析上市公司财报，通过提取核心数据、计算财务比率、生成可视化图表并结合业务背景，产出高质量的财务分析报告。
+用户直接在智能体对话上传年报或点击首页财报示例。所有步骤在当前对话完成，右侧 Computer 展示财报组件，不要求用户跳转独立页面。
 
-## 核心工作流程
+## 工作流程
 
-1. **数据提取与结构化**：
-   - 使用 `execute_skill_script_file` 工具执行 `scripts/extract_financials.py` 脚本，传入财报文件路径（`file_path` 参数），自动提取营收、净利润、资产、负债等核心数值。
-   - 当前提取器支持中文、人民币、非金融企业的文本型年度报告 PDF（通过 pdfplumber 解析规则表格），返回带物理页码的 `facts` 和 `evidence`，并保留旧计算脚本使用的顶层数值字段。纯文本、扫描件和未识别版式不再使用全文正则猜测数值。
-   - `normalizedValue` 为十进制字符串；顶层数值仅用于兼容旧脚本。`net_profit` 明确为归母净利润，`non_recurring_net_profit` 为扣非归母净利润，`equity` 为归母净资产；`prev_*` 为上一年度可用值。
-   - 检查 `_meta.status`、`missing_fields` 和事实的 `extractionStatus`。缺项或冲突返回 null，不得补零或用其他口径替代。自动提取的 `qualityStatus=warning` 表示待核对，不是人工验证结果。只有实际披露的比较期才能用于趋势分析。
+1. 调用 `prepare_financial_report`。仅有一份 PDF 可省略参数；有多份时指定当前附件清单的 `file_id`，不猜测路径或 ID。该工具复用页级提取器、Decimal 计算和报告存储，返回真实 facts、calculations、evidence、run_id、revision。它不调用另一个模型生成结论。
+2. 阅读返回数据并由当前智能体撰写结构化 `findings`。遵循工具返回的 `publication_instructions`：尽量覆盖 overview、profitability、cashflow、balance；引用真实 ID；年份、金额、百分比等数字必须使用工具说明中的双花括号占位符，后端替换真实显示值。缺少事实、计算或附注时明确不足，不使用示例值、不心算、不补造原因。
+3. 调用 `publish_financial_report(run_id, revision, findings)`。结论结构、数字及引用由后端验证。全部被拒绝时修正并重试；部分通过时如实保留“部分分析”。无可支持结论时可提交空数组，报告仍保留事实、计算与原 PDF 来源。
+4. 用一两句话总结实际结果并调用 `terminate`。报告已经作为当前智能体的产物显示，用户可以查看原有五个章节、证据、PDF 原页与 JSON/HTML 导出。不要再调用 `html_interpreter`、生成另一套网页，或让用户进入 `/financial-analysis`。
+5. 后续追问调用 `read_financial_report`，省略 run_id 默认读取当前对话最近报告，也可明确指定该对话的报告 ID。只依据读取到的事实、确定性计算、有效结论和摘录作答；没有的指标和原因明确说明缺少依据。需要新分析时才重新调用 prepare。
 
-2. **财务比率计算**：
-   - 使用 `execute_skill_script_file` 执行 `scripts/calculate_ratios.py`，传入 Step 1 的 JSON 数据。
-   - 自动计算毛利率、净利率、ROE、资产负债率等关键指标，输出 30 个模板占位符键值。
-   - 参考 `references/financial_metrics.md` 确保指标定义的准确性。
-   - **系统会自动保存返回的 JSON 结果**（`react_state["ratio_data"]`），后续 html_interpreter 会自动合并。
+## 数据边界
 
-3. **图表生成**：
-   - 使用 `execute_skill_script_file` 执行 `scripts/generate_charts.py`，传入 Step 1 的 JSON 数据。
-   - 自动生成 3 张可视化图表：
-     - `financial_overview.png`：核心财务指标对比柱状图
-     - `profitability.png`：盈利能力指标横向条形图
-     - `asset_structure.png`：资产结构环形饼图
-   - **系统会自动将图片复制到静态目录并记录 URL 映射**（`react_state["image_url_map"]`），后续 html_interpreter 会自动合并。
-
-4. **深度分析**：
-   - 遵循 `references/analysis_framework.md` 提供的框架，从盈利质量、偿债风险、营运效率和现金流四个维度进行深度剖析。
-   - 结合"经营情况讨论与分析"章节，解释业绩变动的核心驱动因素。
-   - 撰写以下 7 段分析文本：
-     - `PROFITABILITY_ANALYSIS`：盈利能力分析
-     - `SOLVENCY_ANALYSIS`：偿债与风险分析
-     - `EFFICIENCY_ANALYSIS`：营运效率分析
-     - `CASHFLOW_ANALYSIS`：现金流与利润质量分析
-     - `ADVANTAGES_LIST`：核心优势列表（HTML `<li>` 格式）
-     - `RISKS_LIST`：主要风险列表（HTML `<li>` 格式）
-     - `OVERALL_ASSESSMENT`：综合评价
-
-5. **渲染报告**：
-   - 调用 `html_interpreter`，使用 `template_path` 模式：
-     ```json
-     {
-       "template_path": "financial-report-analyzer/templates/report_template.html",
-       "data": {
-         "PROFITABILITY_ANALYSIS": "LLM撰写的盈利能力分析...",
-         "SOLVENCY_ANALYSIS": "LLM撰写的偿债分析...",
-         "EFFICIENCY_ANALYSIS": "LLM撰写的营运效率分析...",
-         "CASHFLOW_ANALYSIS": "LLM撰写的现金流分析...",
-         "ADVANTAGES_LIST": "<li>优势1</li><li>优势2</li>",
-         "RISKS_LIST": "<li>风险1</li><li>风险2</li>",
-         "OVERALL_ASSESSMENT": "LLM撰写的综合评价..."
-       },
-       "title": "XX公司 2023年度财报分析报告"
-     }
-     ```
-   - **重要**：`data` 字典中只需传入你撰写的 7 段分析文本！后端会自动合并：
-     - Step 2 的 30 个数据指标（COMPANY_NAME、REVENUE、NET_PROFIT 等）
-     - Step 3 的图表 URL（CHART_FINANCIAL_OVERVIEW、CHART_PROFITABILITY、CHART_ASSET_STRUCTURE）
-   - **绝对不要**在 `data` 中包含数据指标或图表路径，否则 JSON 过大会导致截断。
-
-6. **完成**：
-   - 调用 `terminate` 返回 1-2 句话的简短摘要。
-   - 报告会以卡片形式展示在左侧面板，用户点击卡片即可在右侧面板查看完整报告。
-
-## 完整流程示例
-
-```
-Step 1: execute_skill_script_file(skill_name="financial-report-analyzer", script_file_name="extract_financials.py", args={"file_path": "/path/to/report.pdf"})
-  → 返回 JSON: {"revenue": 10500000000, "net_profit": 1200000000, ...}  （记为 raw_data）
-
-Step 2: execute_skill_script_file(skill_name="financial-report-analyzer", script_file_name="calculate_ratios.py", args=<raw_data>)
-  → 返回 30 个模板键值，系统自动记录到 react_state["ratio_data"]
-
-Step 3: execute_skill_script_file(skill_name="financial-report-analyzer", script_file_name="generate_charts.py", args=<raw_data>)
-  → 生成图表，系统自动复制到 /images/ 并记录 URL 映射
-
-Step 4: （LLM 自行撰写 7 段深度分析文本）
-
-Step 5: html_interpreter(template_path="financial-report-analyzer/templates/report_template.html", data={仅包含 7 段分析文本}, title="报告标题")
-  → 后端自动合并数据指标 + 图表 URL + 分析文本，渲染完整报告
-
-Step 6: terminate(result="简短摘要")
-```
-
-## 资源使用说明
-
-- **脚本**（均通过 `execute_skill_script_file` 执行）：
-  - `scripts/extract_financials.py`：接收 `file_path` 参数，读取支持的年度报告 PDF，提取核心财务事实和来源；使用同目录 `financial_document.py` 作为解析模块。
-  - `scripts/calculate_ratios.py`：计算财务比率，输出 30 个模板占位符键值。系统自动记录结果。
-  - `scripts/generate_charts.py`：生成 3 张可视化图表（matplotlib），系统自动处理图片复制。
-  - `scripts/fill_template.py`：（备用）接收 `ratio_data`、`chart_paths`、`analysis` 三个参数，读取 HTML 模板并替换所有占位符。正常情况下不需要使用此脚本，因为 html_interpreter 的 template_path 模式会自动完成模板填充。
-- **参考**：
-  - `references/financial_metrics.md`：包含公式定义。
-  - `references/analysis_framework.md`：包含分析逻辑。
-- **模板**：
-  - `templates/report_template.html`：最终交付报告的 HTML 模板（**必须严格遵循**，不得删减章节或修改表格结构）。由 html_interpreter 的 template_path 参数自动读取并填充。
-  - `templates/report_template.md`：Markdown 版本，仅供参考结构说明。
-
-## 注意事项
-
-- **必须使用 `execute_skill_script_file`** 执行脚本（不要用 shell_interpreter），因为 `execute_skill_script_file` 会自动处理图片复制和数据记录。
-- 脚本提取可能受排版影响，建议在计算前人工核对提取的关键数值。
-- 始终关注"非经常性损益"，以评估公司核心业务的真实盈利能力。
-- 对比报告实际披露的历史期间；不足三年时说明缺项，不补造数值。
-- `generate_charts.py` 依赖 matplotlib，请确保环境中已安装该库。
+- 当前提取器支持中文、人民币、非金融企业的文本型年度报告 PDF，使用真实比较期，缺项不补零。
+- 归母净利润、扣非归母净利润、合并口径及期初/期末不能混用。
+- 自动提取值仍待人工核对，引用校验不等于结论语义已经人工确认。
+- `references/financial_metrics.md` 和 `references/analysis_framework.md` 可供参考，不能用参考材料中的常量补齐当前报告。
+- 旧 scripts 与 HTML 模板保留兼容用途；当前智能体财报交付统一通过上述工具与固定组件完成。

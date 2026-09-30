@@ -2119,6 +2119,14 @@ print(json.dumps(summary, ensure_ascii=False))
     read_file_tool = make_read_file(react_state)
     # Keep local aliases for backward compatibility (SSE loop references these names)
     execute_skill_script_file_tool = make_execute_skill_script_file(react_state)
+    from dbgpt_app.openapi.api_v1.tools.financial_tools import (
+        FINANCIAL_AGENT_PROMPT,
+        finalize_financial_answer,
+        financial_completion_error,
+        make_financial_tools,
+    )
+
+    financial_tools = make_financial_tools(react_state)
 
     _todo_action_history: Dict[int, List[str]] = {}
 
@@ -2295,6 +2303,8 @@ print(json.dumps(summary, ensure_ascii=False))
 
     conv_id = dialogue.conv_uid or str(uuid.uuid4())
     react_state["conv_id"] = conv_id
+    react_state["owner_id"] = dialogue.user_name
+    react_state["model_name"] = dialogue.model_name
     if attachment_ctx is not None:
         # Public manifests for runtime tools plus the internal primary
         # materialized path / files_json mapping (execution-only values —
@@ -2475,15 +2485,17 @@ Please always response in the same language as the user's input language.
 2. For each step, output Thought -> Action Intention -> Action Reason -> Action
    -> Action Input.
 3. Wait for the system to return Observation before deciding on the next step.
-4. **[Mandatory Rule] If the task requires generating an analysis report, you MUST
-call `html_interpreter` for HTML rendering.** By default, generate complete HTML
+4. Financial annual reports use prepare_financial_report and publish_financial_report
+to render the built-in report component. For OTHER analysis reports, you MUST
+call `html_interpreter` for HTML rendering. By default, generate complete HTML
 code yourself and pass it via the `html` parameter (include DOCTYPE, html, head,
 body, styles, and all content). Only use `template_path` mode if the skill
 explicitly provides HTML templates in its `templates/` directory and its
 documentation references them. When using template mode, provide ALL required
 placeholders in the `data` dictionary.
-5. If the task does not require generating a report, directly call terminate to
-return the final result. The Action Input format must be
+5. For financial report follow-ups, call read_financial_report before answering.
+For other tasks that do not require a report, call terminate when complete.
+The Action Input format must be
 {{"result": "final answer"}}.
 
 {skill_prompt_context}
@@ -2631,6 +2643,7 @@ Thought/Action/Action Input format shown above.
                     question_tool,
                     Terminate(),
                 ]
+                + financial_tools
                 + business_tools
                 + connector_tool_extras
             )
@@ -2663,12 +2676,14 @@ order, select as needed).
 4. Wait for the system to return Observation before deciding on the next step.
 5. When the task is completed, call the terminate tool to return the final result.
 The Action Input format must be {{"result": "final answer"}}.
-6. **[Mandatory Rule] If there is a requirement for an analysis report, you MUST call
+6. Financial annual reports use prepare_financial_report and publish_financial_report
+to render the built-in report component; follow-ups use read_financial_report.
+For OTHER analysis reports, you MUST call
 `html_interpreter` for HTML rendering. When the user requests generating a webpage,
 HTML report, or interactive report, the final presentation step must call
 `html_interpreter` to render it. It is forbidden to output HTML using only
 `code_interpreter` and then directly terminate. Correct process: code_interpreter
-writes to .html file -> html_interpreter(file_path=...) renders -> terminate.**
+writes to .html file -> html_interpreter(file_path=...) renders -> terminate.
 
 ## Task Management
 For complex tasks that require 3 or more steps, use the `todowrite` tool to create
@@ -2846,6 +2861,7 @@ Thought/Action/Action Input format shown above.
                     question_tool,
                     Terminate(),
                 ]
+                + financial_tools
                 + business_tools
                 + connector_tool_extras
             )
@@ -2940,6 +2956,9 @@ Thought/Action/Action Input format shown above.
         pass  # graceful degradation
     # --- End connector system prompt injection ---
 
+    if tool_mode != "knowledge":
+        workflow_prompt += "\n" + FINANCIAL_AGENT_PROMPT
+
     # Convert workflow_prompt to PromptTemplate so it is used as system prompt
     # Use jinja2 format to avoid issues with JSON braces { } in the prompt
     workflow_prompt_template = PromptTemplate(
@@ -2948,8 +2967,20 @@ Thought/Action/Action Input format shown above.
         template_format="jinja2",
     )
 
+    class ReportAwareAgent(ToolCallingReActAgent):
+        async def correctness_check(self, message):
+            if (
+                message.action_report
+                and message.action_report.terminate
+                and tool_mode != "knowledge"
+            ):
+                error = await financial_completion_error(react_state)
+                if error:
+                    return False, error
+            return await super().correctness_check(message)
+
     agent_builder = (
-        ToolCallingReActAgent(max_retry_count=30)
+        ReportAwareAgent(max_retry_count=30)
         .bind(context)
         .bind(agent_memory)
         .bind(llm_config)
@@ -3561,6 +3592,7 @@ Thought/Action/Action Input format shown above.
     else:
         final_content = reply.content or ""
 
+    final_content = finalize_financial_answer(final_content, react_state)
     final_answer = final_answer_assembler.finalize(final_content)
 
     # Persist AI reply with structured history payload

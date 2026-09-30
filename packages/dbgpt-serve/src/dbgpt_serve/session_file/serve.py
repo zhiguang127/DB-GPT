@@ -83,6 +83,11 @@ class SessionFileServe(BaseServe):
         """Return the orchestrating registry bound during ``init_app``."""
         return self._registry
 
+    @property
+    def financial_analysis(self):
+        """Shared report persistence and validation for API and agent tools."""
+        return self._financial_analysis
+
     def init_app(self, system_app: SystemApp):
         """Mount the router and bind the registry to the endpoints module."""
         if self._app_has_initiated:
