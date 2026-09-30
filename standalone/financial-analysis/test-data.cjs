@@ -45,6 +45,13 @@ const { alternateReportFixture, emptyReportFixture } = require(path.join(folder,
 const { resolveEvidence, periodRange } = require(path.join(folder, 'report-data.ts'));
 const sections = require(path.join(folder, 'ReportSections.tsx'));
 const Page = require(path.join(folder, 'FinancialAnalysisPage.tsx')).default;
+if (process.env.FINANCIAL_LAYOUT_CHILD !== 'baseline') {
+  const embeddedOutput = renderToStaticMarkup(React.createElement(Page, { data: alternateReportFixture, embedded: true }));
+  assert.ok(embeddedOutput.includes(alternateReportFixture.report.companyName));
+  assert.ok(embeddedOutput.includes('财务分析章节'));
+  assert.ok(!embeddedOutput.includes('DB-GPT Agent 任务'));
+  assert.ok(!embeddedOutput.includes('Agent Workspace'));
+}
 const Evidence = require(path.join(folder, 'EvidencePanel.tsx')).default;
 const Execution = require(path.join(folder, 'ExecutionProcessPanel.tsx')).default;
 const Source = require(path.join(folder, 'SourcePreviewPanel.tsx')).default;

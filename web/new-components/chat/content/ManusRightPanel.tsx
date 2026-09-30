@@ -3,6 +3,7 @@ import markdownComponents, { markdownPlugins, preprocessLaTeX } from '@/componen
 import type { SessionFileSnapshot } from '@/modules/session-files';
 import AdvancedChart, { createChartConfig } from '@/new-components/charts';
 import MarkDownContext from '@/new-components/common/MarkdownContext';
+import { isFinancialReportReference } from '@/new-components/financial-analysis/agent-artifact';
 import type { SubAgentState, SubAgentStep } from '@/types/subagent';
 import type { AgentCitation } from '@/utils/react-agent-final';
 import {
@@ -47,6 +48,7 @@ import {
 import { GPTVis } from '@antv/gpt-vis';
 import { Button, Table, Tooltip, message } from 'antd';
 import classNames from 'classnames';
+import dynamic from 'next/dynamic';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Collapsible } from '../tools/Collapsible';
@@ -56,6 +58,10 @@ import ParallelTasksPanel from './ParallelTasksPanel';
 import SubAgentStatusBadge from './SubAgentStatusBadge';
 import type { TaskFileTab, TaskFileTabNavigationKey } from './task-files-view-model';
 import { TASK_FILE_TABS, buildTaskFileView, getNextTaskFileTab, getTaskFileEmptyLabel } from './task-files-view-model';
+
+const FinancialReportArtifact = dynamic(() => import('@/new-components/financial-analysis/FinancialReportArtifact'), {
+  ssr: false,
+});
 
 /** Resolve image paths like `/images/xxx.png` to full backend URLs in dev mode */
 const resolveImageUrl = (src: string): string => {
@@ -1348,6 +1354,14 @@ const HtmlTabbedRenderer: React.FC<{ code?: ExecutionOutput; html: ExecutionOutp
   const htmlString = resolveHtmlImageUrls(rawHtml);
   const sourceCode = code ? String(code.content) : rawHtml;
 
+  if (isFinancialReportReference(htmlContent)) {
+    return (
+      <div className='h-[75vh] min-h-[500px]'>
+        <FinancialReportArtifact reference={htmlContent} />
+      </div>
+    );
+  }
+
   return (
     <div className='rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700'>
       <div className='flex items-center gap-0 bg-white dark:bg-[#111217] border-b border-gray-200 dark:border-gray-700'>
@@ -2602,7 +2616,7 @@ const ManusRightPanel: React.FC<ManusRightPanelProps> = ({
         </div>
 
         <div className='flex items-center gap-1'>
-          {panelView === 'html-preview' && previewArtifact && (
+          {panelView === 'html-preview' && previewArtifact && !isFinancialReportReference(previewArtifact.content) && (
             <Tooltip title={t('export_pdf')}>
               <Button
                 type='text'
@@ -2883,6 +2897,11 @@ const ManusRightPanel: React.FC<ManusRightPanelProps> = ({
           <div className='w-full h-full flex flex-col p-5 overflow-auto'>
             <SkillCardRenderer skillName={skillName} outputs={visibleOutputs} />
           </div>
+        ) : panelView === 'html-preview' && previewArtifact && isFinancialReportReference(previewArtifact.content) ? (
+          <FinancialReportArtifact
+            key={`${previewArtifact.content.runId}:${previewArtifact.content.revision}`}
+            reference={previewArtifact.content}
+          />
         ) : panelView === 'html-preview' && previewArtifact ? (
           <div className='w-full h-full flex flex-col'>
             {(() => {

@@ -46,6 +46,7 @@ import TaskPlanCard, { TaskItem } from '@/new-components/chat/content/TaskPlanCa
 import ConfirmDialog from '@/new-components/connector/ConfirmDialog';
 import { AttachedConnector, ConnectorInstance } from '@/new-components/connector/types';
 import { useConfirmPolling } from '@/new-components/connector/useConfirmPolling';
+import { isFinancialReportReference, reportArtifactContent } from '@/new-components/financial-analysis/agent-artifact';
 import FromTaskBanner from '@/new-components/scheduled-task/FromTaskBanner';
 import SaveAsScheduledTaskDrawer from '@/new-components/scheduled-task/SaveAsScheduledTaskDrawer';
 import type { ChatReplayPayload } from '@/types/scheduled-task';
@@ -529,7 +530,7 @@ const EXAMPLE_CARDS = [
     borderColor: 'border-violet-200/60 dark:border-violet-800/40',
     iconBg: 'bg-violet-100 dark:bg-violet-900/40',
     skillName: 'financial-report-analyzer',
-    previewPath: '/financial-analysis',
+    previewPath: '/financial-analysis?demo=1',
   },
   {
     id: 'create_sql_skill',
@@ -1408,6 +1409,17 @@ const Playground: NextPage = () => {
         break;
       }
       case 'html': {
+        if (isFinancialReportReference(artifact.content)) {
+          try {
+            const { downloadFinancialReport } = await import(
+              '@/new-components/financial-analysis/FinancialReportArtifact'
+            );
+            await downloadFinancialReport(artifact.content);
+          } catch {
+            message.error('财报下载失败，请在报告的文件页重试');
+          }
+          break;
+        }
         const htmlContent =
           typeof artifact.content === 'string'
             ? artifact.content
@@ -1558,10 +1570,7 @@ const Playground: NextPage = () => {
                 size: output.content?.size,
               });
             } else if (output.output_type === 'html') {
-              const htmlContent =
-                typeof output.content === 'string'
-                  ? output.content
-                  : output.content?.content || output.content?.html || String(output.content);
+              const htmlContent = reportArtifactContent(output.content);
               const htmlTitle = output.content?.title || 'Report';
               finalArtifacts.push({
                 id: `${messageId}-html-${step.id}-${oIdx}`,

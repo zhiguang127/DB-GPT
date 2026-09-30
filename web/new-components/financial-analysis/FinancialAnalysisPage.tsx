@@ -143,12 +143,13 @@ const SkillPanel: React.FC = () => {
 };
 
 const FinancialAnalysisWorkspace: React.FC<{
+  embedded?: boolean;
   onNewReport?: () => void;
   sourceAccess?: SourcePreviewAccess;
   analysisActions?: AnalysisActions;
   questionAccess?: ReportQuestionAccess;
   exportAccess?: ReportExportAccess;
-}> = ({ onNewReport, sourceAccess, analysisActions, questionAccess, exportAccess }) => {
+}> = ({ embedded = false, onNewReport, sourceAccess, analysisActions, questionAccess, exportAccess }) => {
   const { data, sourceDocumentMap } = useReportData();
   const runState = reportRunState(data);
   const router = useRouter();
@@ -188,70 +189,79 @@ const FinancialAnalysisWorkspace: React.FC<{
   const previewDocument = previewEvidence ? sourceDocumentMap[previewEvidence.sourceDocumentId] : null;
 
   return (
-    <main className={styles.workspace}>
-      <header className={styles.header}>
-        <button type='button' onClick={() => router.push('/')} className={styles.breadcrumb}>
-          <RobotOutlined />
-          <strong>DB-GPT</strong>
-          <span>/</span>
-          <span>Agent Workspace</span>
-        </button>
-        {onNewReport && (
-          <button type='button' className={styles.textLink} onClick={onNewReport}>
-            分析另一份报告
+    <main className={styles.workspace} data-embedded={embedded || undefined}>
+      {!embedded && (
+        <header className={styles.header}>
+          <button type='button' onClick={() => router.push('/')} className={styles.breadcrumb}>
+            <RobotOutlined />
+            <strong>DB-GPT</strong>
+            <span>/</span>
+            <span>Agent Workspace</span>
           </button>
-        )}
-        <span className={styles.completed}>
-          {runState.complete && <CheckCircleFilled />} {runState.label}
-        </span>
-      </header>
-      <div className={styles.columns} data-agent-collapsed={agentCollapsed}>
-        <section className={styles.agentRail} aria-label='DB-GPT Agent 任务' hidden={agentCollapsed}>
-          <div className={styles.agentScroll}>
-            <AgentRunPanel
-              activeStepId={activeStepId}
-              onStepSelect={id => {
-                setActiveStepId(id);
-                switchWorkspace('execution');
-              }}
-              onOpenArtifact={() => switchWorkspace('report')}
-              onOpenFiles={() => switchWorkspace('files')}
-            />
-          </div>
-          <AskDbGPTDock onOpenEvidence={openEvidence} questionAccess={questionAccess} />
-        </section>
-        <section className={styles.computer} aria-label='DB-GPT Computer'>
-          <div className={styles.computerHeader}>
-            <div>
-              <button
-                type='button'
-                onClick={() => setAgentCollapsed(value => !value)}
-                aria-label={agentCollapsed ? '展开 Agent 面板' : '折叠 Agent 面板'}
-                aria-expanded={!agentCollapsed}
-              >
-                {agentCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              </button>
-              <DesktopOutlined />
-              <span>DB-GPT Computer</span>
+          {onNewReport && (
+            <button type='button' className={styles.textLink} onClick={onNewReport}>
+              分析另一份报告
+            </button>
+          )}
+          <span className={styles.completed}>
+            {runState.complete && <CheckCircleFilled />} {runState.label}
+          </span>
+        </header>
+      )}
+      <div className={styles.columns} data-agent-collapsed={embedded || agentCollapsed}>
+        {!embedded && (
+          <section className={styles.agentRail} aria-label='DB-GPT Agent 任务' hidden={agentCollapsed}>
+            <div className={styles.agentScroll}>
+              <AgentRunPanel
+                activeStepId={activeStepId}
+                onStepSelect={id => {
+                  setActiveStepId(id);
+                  switchWorkspace('execution');
+                }}
+                onOpenArtifact={() => switchWorkspace('report')}
+                onOpenFiles={() => switchWorkspace('files')}
+              />
             </div>
-            <Tooltip title={capabilityNote(data.mode)}>
-              <button type='button' aria-label='关于此工作区'>
-                <InfoCircleOutlined />
-              </button>
-            </Tooltip>
-          </div>
+            <AskDbGPTDock onOpenEvidence={openEvidence} questionAccess={questionAccess} />
+          </section>
+        )}
+        <section className={styles.computer} aria-label='DB-GPT Computer'>
+          {!embedded && (
+            <div className={styles.computerHeader}>
+              <div>
+                <button
+                  type='button'
+                  onClick={() => setAgentCollapsed(value => !value)}
+                  aria-label={agentCollapsed ? '展开 Agent 面板' : '折叠 Agent 面板'}
+                  aria-expanded={!agentCollapsed}
+                >
+                  {agentCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                </button>
+                <DesktopOutlined />
+                <span>DB-GPT Computer</span>
+              </div>
+              <Tooltip title={capabilityNote(data.mode)}>
+                <button type='button' aria-label='关于此工作区'>
+                  <InfoCircleOutlined />
+                </button>
+              </Tooltip>
+            </div>
+          )}
           <nav className={styles.workspaceNav} aria-label='Computer 工作区'>
-            {workspaceTabs.map(tab => (
-              <button
-                type='button'
-                key={tab.key}
-                aria-current={workspaceTab === tab.key ? 'page' : undefined}
-                onClick={() => switchWorkspace(tab.key)}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-              </button>
-            ))}
+            {embedded && <span className={styles.completed}>{runState.label}</span>}
+            {workspaceTabs
+              .filter(tab => !embedded || tab.key !== 'skill')
+              .map(tab => (
+                <button
+                  type='button'
+                  key={tab.key}
+                  aria-current={workspaceTab === tab.key ? 'page' : undefined}
+                  onClick={() => switchWorkspace(tab.key)}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              ))}
           </nav>
           <div ref={scrollRef} className={styles.artifactScroll}>
             {workspaceTab === 'report' && (
@@ -328,15 +338,17 @@ const FinancialAnalysisWorkspace: React.FC<{
   );
 };
 const FinancialAnalysisPage: React.FC<{
+  embedded?: boolean;
   data: ReportData;
   onNewReport?: () => void;
   sourceAccess?: SourcePreviewAccess;
   analysisActions?: AnalysisActions;
   questionAccess?: ReportQuestionAccess;
   exportAccess?: ReportExportAccess;
-}> = ({ data, onNewReport, sourceAccess, analysisActions, questionAccess, exportAccess }) => (
+}> = ({ data, embedded, onNewReport, sourceAccess, analysisActions, questionAccess, exportAccess }) => (
   <ReportDataProvider key={`${data.report.id}:${data.report.run.id}:${data.revision}`} data={data}>
     <FinancialAnalysisWorkspace
+      embedded={embedded}
       onNewReport={onNewReport}
       sourceAccess={sourceAccess}
       analysisActions={analysisActions}
