@@ -9,6 +9,7 @@ from dbgpt_app.openapi.api_v1.tools.financial_tools import (
     finalize_financial_answer,
     financial_completion_error,
     make_financial_tools,
+    publication_example,
 )
 
 from .test_analysis import draft
@@ -40,6 +41,9 @@ async def test_agent_prepares_publishes_and_reopens_with_scoped_artifact(stack):
     assert await financial_completion_error(state, service=backend) is None
     result = await prepare()
     prepared = payload(result)
+    example = publication_example(state["financial_report_context"])
+    assert prepared["publication_example"] == example
+    assert prepared["data"]["calculations"][0]["reference"].startswith("{{calculation:")
     run_id, revision = prepared["run_id"], prepared["revision"]
     assert "publish_financial_report" in await financial_completion_error(
         state, service=backend
@@ -56,7 +60,11 @@ async def test_agent_prepares_publishes_and_reopens_with_scoped_artifact(stack):
 
     invalid = dict(draft(report), summary="收入为999亿元")
     rejected = await publish(run_id, revision, [invalid])
-    assert "结论未通过校验" in rejected
+    rejection = json.loads(rejected)
+    assert "自动修正" in rejection["chunks"][0]["content"]
+    assert "Unreferenced number" not in rejection["chunks"][0]["content"]
+    assert rejection["repair"]["issues"][0]["field"] == "summary"
+    assert rejection["repair"]["example"] == example
     assert backend.get("alice", "s1", run_id, report=True) == report
     final = payload(await publish(run_id, revision, [draft(report)]))
     assert final["analysis"]["status"] == "partial"
@@ -121,6 +129,36 @@ async def test_agent_requires_unambiguous_current_attachment(stack):
     for file_id in ["", "foreign"]:
         with pytest.raises(ValueError, match="请选择"):
             await prepare(file_id)
+
+
+@pytest.mark.asyncio
+async def test_repeated_invalid_findings_end_with_explicit_data_only_report(stack):
+    client, serve = stack
+    backend = serve.financial_analysis
+    backend.extractor = extraction
+    state = {
+        "owner_id": "alice",
+        "conv_id": "s1",
+        "session_files": [SimpleNamespace(file_id=upload(client), name="年报.pdf")],
+    }
+    prepare, publish, _ = make_financial_tools(state, service=backend)
+    prepared = payload(await prepare())
+    run_id, revision = prepared["run_id"], prepared["revision"]
+    report = state["financial_report_context"]
+    invalid = dict(draft(report), summary="收入999亿元")
+    for attempt in (1, 2):
+        result = json.loads(await publish(run_id, revision, [invalid]))
+        assert result["repair"]["attempt"] == attempt
+        assert run_id in state["financial_pending"]
+        assert backend.get("alice", "s1", run_id, report=True) == report
+    final = payload(await publish(run_id, revision, [invalid]))
+    assert final["analysis"]["status"] == "partial"
+    assert final["analysis"]["rejectedCount"] == 1
+    assert "仅保留财务数据" in final["analysis"]["error"]
+    assert final["findings"] == []
+    assert run_id not in state["financial_pending"]
+    assert state["financial_report_context"]["facts"] == report["facts"]
+    assert "999" not in finalize_financial_answer("分析完成", state)
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 
 from dbgpt_serve.financial_analysis.analysis import (
+    InvalidFindings,
     QwenAnalyzer,
     apply_findings,
     model_context,
@@ -67,6 +68,49 @@ def test_validated_numbers_are_server_rendered_and_support_is_conservative():
     assert all(s["findingIds"] for s in updated["sections"].values())
     assert updated["facts"] == original["facts"]
     assert report == original
+
+
+def test_calculation_shorthand_only_resolves_a_declared_available_reference():
+    report = report_fixture()
+    calc_id = "calc-debt_ratio-2024"
+    item = dict(
+        draft(report),
+        factIds=[],
+        calculationIds=[calc_id],
+        evidenceExcerptIds=[],
+        summary="披露数据为{{" + calc_id + "}}，需结合流动性核对。",
+    )
+    findings, rejected = validate_findings(json.dumps({"findings": [item]}), report)
+    assert rejected == 0 and "{{" not in findings[0]["summary"]
+    for changed in (
+        {"calculationIds": []},
+        {"summary": "{{calc-foreign-2024}}"},
+        {"summary": item["summary"] + "低于1倍"},
+        {"summary": "{{" + calc_id + "}}元"},
+    ):
+        with pytest.raises(InvalidFindings):
+            validate_findings(json.dumps({"findings": [dict(item, **changed)]}), report)
+
+
+def test_validation_feedback_identifies_finding_field_and_schema_limit():
+    report = report_fixture()
+    drafts = [
+        dict(draft(report), summary="{{fact:unknown}}"),
+        dict(draft(report), calculationIds=["calc-debt_ratio-2024"] * 10),
+        dict(draft(report), counterEvidence=["低于1倍"]),
+    ]
+    with pytest.raises(InvalidFindings) as caught:
+        validate_findings(json.dumps({"findings": drafts}), report)
+    details = caught.value.details
+    assert details[0]["finding_index"] == 0 and details[0]["field"] == "summary"
+    assert details[1] == {
+        "finding_index": 1,
+        "field": "calculationIds",
+        "code": "too_long",
+        "limit": 6,
+    }
+    assert details[2]["field"] == "counterEvidence[0]"
+    assert "低于1倍" not in json.dumps(details, ensure_ascii=False)
 
 
 @pytest.mark.parametrize(

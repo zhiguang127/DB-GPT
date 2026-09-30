@@ -22,6 +22,10 @@ from dbgpt_serve.financial_analysis.questions import (
 PUBLICATION_RULES = (
     "下一步必须在本轮调用 publish_financial_report，不能 terminate 描述下一步计划。"
     "用工具参数 findings 提交结构化发现，通常四条，证据不足可以减少或传空数组。"
+    "每条最多六个 calculationIds，超出时按主题拆成多条，整个数组最多六条。"
+    "直接复制数据中的 reference 字段；计算引用必须有 calculation: 前缀。"
+    "不能把 calc- 开头的计算 ID 直接放进双花括号，必须在 ID 前加 calculation:。"
+    "不要写‘低于1倍’，可写‘经营现金流低于归母净利润’并引用相应计算。"
     "section 可为 overview、profitability、cashflow、balance。\n"
     + SYSTEM_PROMPT[SYSTEM_PROMPT.index("每条发现字段") :]
 )
@@ -90,6 +94,30 @@ def _artifact(report, session_id):
     }
 
 
+def publication_example(report):
+    """A schema-valid example using this report's scoped identifiers only."""
+    fact = model_context(report)["facts"][0]
+    return {
+        "run_id": report["report"]["run"]["id"],
+        "revision": report["revision"],
+        "findings": [
+            {
+                "section": "overview",
+                "title": "披露数据与核对范围",
+                "summary": "已披露{{fact:"
+                + fact["id"]
+                + "}}，变化原因需结合附注核对。",
+                "supportStatus": "partial",
+                "factIds": [fact["id"]],
+                "calculationIds": [],
+                "evidenceExcerptIds": fact["evidenceExcerptIds"],
+                "counterEvidence": [],
+                "unresolvedQuestions": ["需结合附注核对变化原因。"],
+            }
+        ],
+    }
+
+
 def _result(report, session_id, *, include_context=False, reading=False):
     summary = {
         "run_id": report["report"]["run"]["id"],
@@ -98,7 +126,6 @@ def _result(report, session_id, *, include_context=False, reading=False):
         "findings": report["findings"],
     }
     if include_context:
-        summary["data"] = model_context(report)
         if reading:
             summary["answer_instructions"] = (
                 "直接回答当前追问，无需重新发布报告。数字使用 {{fact:真实ID}} 或 "
@@ -109,6 +136,14 @@ def _result(report, session_id, *, include_context=False, reading=False):
             )
         else:
             summary["publication_instructions"] = PUBLICATION_RULES
+            summary["publication_example"] = publication_example(report)
+        # Put format instructions before the large data payload, and provide
+        # copyable references so the agent does not have to reconstruct syntax.
+        context = model_context(report)
+        for kind, key in (("fact", "facts"), ("calculation", "calculations")):
+            for item in context[key]:
+                item["reference"] = "{{" + kind + ":" + item["id"] + "}}"
+        summary["data"] = context
     return json.dumps(
         {
             "chunks": [
@@ -297,17 +332,42 @@ def make_financial_tools(state, *, service=None):
                 findings,
             )
         except InvalidFindings as exc:
-            return json.dumps(
-                {
-                    "chunks": [
-                        {
-                            "output_type": "text",
-                            "content": "结论未通过校验，请修正引用和数字占位符后重试："
-                            + json.dumps(exc.issue_counts),
-                        }
-                    ]
-                },
-                ensure_ascii=False,
+            attempts = state.setdefault("financial_publish_failures", {})
+            attempts[run_id] = attempts.get(run_id, 0) + 1
+            if attempts[run_id] < 3:
+                report = await asyncio.to_thread(
+                    backend.get, owner, session_id, run_id, report=True
+                )
+                return json.dumps(
+                    {
+                        "chunks": [
+                            {
+                                "output_type": "text",
+                                "content": (
+                                    "财报数据已保存，正在自动修正结论的引用与格式。"
+                                ),
+                            }
+                        ],
+                        # Agent-only repair details are outside display chunks.
+                        "repair": {
+                            "attempt": attempts[run_id],
+                            "issues": exc.details,
+                            "instructions": PUBLICATION_RULES,
+                            "example": publication_example(report),
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+            # Bound repeated failures; preserve facts and disclose that no
+            # narrative passed instead of looping until the agent exhausts.
+            report = await asyncio.to_thread(
+                backend.publish_agent_report,
+                owner,
+                session_id,
+                run_id,
+                revision,
+                [],
+                rejected_count=exc.rejected_count,
             )
         state.setdefault("financial_pending", set()).discard(run_id)
         state.update(financial_report_context=report, financial_read=False)

@@ -65,10 +65,11 @@ class FindingDraft(BaseModel):
 
 
 class InvalidFindings(ValueError):
-    def __init__(self, issues):
+    def __init__(self, issues, details=None):
         super().__init__("No validated findings")
         self.issue_counts = dict(Counter(issues))
         self.rejected_count = len(issues)
+        self.details = details or []
 
 
 def model_context(report):
@@ -141,6 +142,15 @@ def model_context(report):
 def _render_text(text, facts, calculations, used):
     if len(text) > 2500:
         raise ValueError("Text too long")
+    # Accept an unambiguous shorthand only for an already declared calculation.
+    # Never infer a numeric value or resolve an unknown/undeclared identifier.
+    text = re.sub(
+        r"\{\{(calc-[A-Za-z0-9_-]+)\}\}",
+        lambda match: "{{calculation:" + match[1] + "}}"
+        if match[1] in calculations
+        else match[0],
+        text,
+    )
     # Units are already included in the canonical replacement.
     if re.search(r"\}\}\s*(?:[%％×倍]|百分点|[千万亿]?元)", text):
         raise ValueError("Model supplied unit suffix")
@@ -182,11 +192,14 @@ def validate_findings(raw, report):
     calculations = {c["id"]: c for c in context["calculations"]}
     evidence = {e["id"]: e for e in context["evidence"]}
     document_ids = {d["id"] for d in report["documents"]}
-    accepted, issues = [], []
-    for raw_finding in drafts:
+    accepted, issues, details = [], [], []
+    for index, raw_finding in enumerate(drafts):
+        field = "$"
         try:
             draft = FindingDraft.model_validate(raw_finding)
+            field = "factIds"
             selected_facts = {i: facts[i] for i in draft.factIds}
+            field = "calculationIds"
             selected_calcs = {i: calculations[i] for i in draft.calculationIds}
             if not selected_facts and not selected_calcs:
                 raise ValueError("No numeric support")
@@ -197,6 +210,7 @@ def validate_findings(raw, report):
             allowed_evidence = {
                 i for f in all_facts.values() for i in f["evidenceExcerptIds"]
             }
+            field = "evidenceExcerptIds"
             if not set(draft.evidenceExcerptIds) <= allowed_evidence:
                 raise ValueError("Unrelated evidence")
             if not allowed_evidence or any(
@@ -205,23 +219,24 @@ def validate_findings(raw, report):
             ):
                 raise ValueError("Missing source")
             used = set()
+            field = "summary"
             summary = _render_text(draft.summary, selected_facts, selected_calcs, used)
             if not used:
                 raise ValueError("Summary has no numeric reference")
+            field = "title"
             texts = {
                 "title": _render_text(
                     draft.title, selected_facts, selected_calcs, used
                 ),
                 "summary": summary,
-                "counterEvidence": [
-                    _render_text(t, selected_facts, selected_calcs, used)
-                    for t in draft.counterEvidence
-                ],
-                "unresolvedQuestions": [
-                    _render_text(t, selected_facts, selected_calcs, used)
-                    for t in draft.unresolvedQuestions
-                ],
             }
+            for name in ("counterEvidence", "unresolvedQuestions"):
+                texts[name] = []
+                for item_index, text in enumerate(getattr(draft, name)):
+                    field = f"{name}[{item_index}]"
+                    texts[name].append(
+                        _render_text(text, selected_facts, selected_calcs, used)
+                    )
             if not texts["unresolvedQuestions"]:
                 texts["unresolvedQuestions"] = [LIMITATION]
             evidence_ids = sorted(
@@ -247,8 +262,18 @@ def validate_findings(raw, report):
                     ),
                 }
             )
-        except ValidationError:
+        except ValidationError as exc:
             issues.append("invalid_schema")
+            details.extend(
+                {
+                    "finding_index": index,
+                    "field": ".".join(map(str, error["loc"])),
+                    "code": error["type"],
+                    "limit": error.get("ctx", {}).get("max_length"),
+                }
+                for error in exc.errors(include_input=False, include_url=False)
+            )
+            continue
         except KeyError:
             issues.append("unknown_or_unavailable_reference")
         except ValueError as exc:
@@ -256,8 +281,11 @@ def validate_findings(raw, report):
             issues.append(str(exc))
         except TypeError:
             issues.append("invalid_type")
+        else:
+            continue
+        details.append({"finding_index": index, "field": field, "code": issues[-1]})
     if not accepted:
-        raise InvalidFindings(issues)
+        raise InvalidFindings(issues, details)
     return accepted, len(issues)
 
 

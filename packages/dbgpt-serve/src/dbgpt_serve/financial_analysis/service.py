@@ -533,7 +533,9 @@ class FinancialAnalysisService:
         )
         report["agent"]["summary"] = "财务事实、计算和原文已保存。\n\n" + step["detail"]
 
-    def publish_agent_report(self, owner, session_id, run_id, revision, findings):
+    def publish_agent_report(
+        self, owner, session_id, run_id, revision, findings, *, rejected_count=0
+    ):
         """Validate the current agent's conclusions against its saved snapshot.
 
         Publication is one-shot per run. Exports of the initial data revision
@@ -551,7 +553,7 @@ class FinancialAnalysisService:
                     409, "REPORT_CHANGED", "报告已更新，请重新读取。"
                 )
             if findings == []:
-                accepted, rejected = [], 0
+                accepted, rejected = [], rejected_count
             else:
                 accepted, rejected = validate_findings(
                     json.dumps({"findings": findings}, ensure_ascii=False), report
@@ -561,7 +563,14 @@ class FinancialAnalysisService:
                 SECTIONS
             )
             self._finish_report_analysis(
-                report, "completed" if complete else "partial", rejected=rejected
+                report,
+                "completed" if complete else "partial",
+                rejected=rejected,
+                error=(
+                    "结论格式修正多次仍未通过校验，本次仅保留财务数据与原文依据。"
+                    if not findings and rejected_count
+                    else None
+                ),
             )
             self._update(
                 run_id,
