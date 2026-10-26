@@ -40,3 +40,20 @@ description: 在当前智能体对话中分析中文上市公司文本型年度�
 - 追问可调用 `read_financial_report(run_id, revision)` 固定版本，引用链接携带 revision。历史、JSON 和离线 HTML 均读取同一快照；恢复不重新调用模型。离线 HTML 的来源 PDF 需要回到应用授权访问。
 
 运行、显式迁移和隔离验收见 `docs/financial-comparison-acceptance.zh-CN.md`。当前执行器仅支持单个本地服务进程；扫描 PDF、跨币种换算、金融企业专用口径、季报及自动 OCR 不在本版验收范围。
+
+## 底层 PDF 提取契约
+
+以下字段描述 `scripts/extract_financials.py` 的原始提取结果；它与上文的单报告工作流及多报告比较快照分层使用，不替代专用财报工具。
+
+
+- `file_path` 必须指向可读取的 `.pdf` 文件，内容为带文本层的中文年度报告。提取范围是可识别的合并财务报表和“主要会计数据和财务指标”规则表格，不提供季度报告、纯文本文件或金融企业专用报表的解析保证。
+- 不执行 OCR，不从叙述段落中的邻近数字补填指标。扫描件、缺少年度标识或无法识别的表格可能返回 `_meta.status: "unsupported"`；此时停止后续自动计算，说明限制。文件格式错误或读取异常返回 `{"error": true, "message": "..."}`。
+- 成功读取后的 JSON 使用 `schemaVersion: 1`，包含：
+  - `document`：文档 ID、文件名、页数和 SHA-256。
+  - `facts`：指标、期间、币种、单位、精确十进制字符串 `normalizedValue`、`extractionStatus`（`parsed` / `missing` / `conflict`）以及 `evidenceExcerptIds`。缺失或冲突值为 `null`，不能按零处理。
+  - `evidence`：原始值、表格行列、单位依据和从 1 开始的 PDF 物理页码。`sourceObservations` 保留表格候选值及来源期间，包括期初余额和调整前数据；这些观察值不能直接视为可比财务事实。
+  - `company_name`、`report_year`、`company_identity`：识别出的公司、年度及公司候选依据；未识别的信息保留空值，`report_date` 当前为 `null`。
+  - `revenue`、`net_profit` 等当年数值及 `prev_` 前缀的上年数值：供现有比率和图表脚本使用的浮点兼容字段。需要精确金额或追溯来源时使用 `facts` 与 `evidence`。
+  - `_meta`：已提取/缺失字段、解析状态、表格问题及限制。`humanVerified` 为 `false`，`parsed` 不表示已经人工核验。
+- 金额按显式的元、千元、万元、百万元或亿元单位换算为人民币元；显式非人民币币种不受支持，不做汇率转换。仅识别显式调整前/后标记，不自动完成重述核对，也不将期初余额当作上年末余额。
+- 提取依赖 `pdfplumber>=0.10.4`（声明在 `dbgpt-ext` 的 `rag` 可选依赖中）。该下限覆盖 `Page.extract_text_lines()` 和 `Page.close()` 两个实际调用的 API；脚本执行环境也必须满足此版本约束。
