@@ -30,8 +30,8 @@ and generated fixtures under ignored cache directories. The temporary Next
 server used port 5688 and was managed/stopped by Playwright. No daily database
 was changed and no live model was called.
 
-- Selected full backend regression: **414 passed, 1 skipped, 3 failed**.
-- Additional data-foundation regressions: **11 passed**. These cover exact
+- Final selected full backend regression: **425 passed, 1 skipped, 3 failed**.
+- The full result includes **11 data-foundation regressions**. These cover exact
   decimal arithmetic, missing/zero inputs, incompatible currency, negative
   prior-period growth and rejection of narrative-only extraction.
 - Financial Vitest: **24 passed**.
