@@ -27,7 +27,8 @@
     "test:dashboard": "vitest run --config vitest.dashboard.config.mts",
     "test:e2e:dashboard": "playwright test --config playwright.dashboard.config.ts",
     "test:e2e:report": "playwright test --config playwright.report.config.ts",
-    "verify:dashboard": "npm run lint && npm run test:dashboard && npm run build"
+    "verify:dashboard": "npm run lint && npm run test:dashboard && npm run build",
+    "test:financial": "vitest run --config vitest.financial.config.mts"
   },
   "dependencies": {
     "@ant-design/cssinjs": "^1.18.4",
